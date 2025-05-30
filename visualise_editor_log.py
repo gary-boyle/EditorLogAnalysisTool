@@ -1643,16 +1643,12 @@ def visualize_domain_reloads(log_file_path):
 def visualize_domain_reload_details(reload_entry):
     st.header("Domain Reload Analysis")
     
-    # Handle None values
-    reset_time = reload_entry.get('reset_time', 0) or 0
-    profiling_time_ms = reload_entry.get('profiling_time_ms', 0) or 0
-    
     # Display summary metrics
     col1, col2 = st.columns(2)
     with col1:
-        st.metric("Total Domain Reload Time", format_time(reset_time))
+        st.metric("Total Domain Reload Time", f"{reload_entry.get('reset_time', 0):.2f}s")
     with col2:
-        st.metric("Profiling Time", format_time(profiling_time_ms / 1000))
+        st.metric("Profiling Time", f"{reload_entry.get('profiling_time_ms', 0) / 1000:.2f}s")
     
     # Flatten the operations hierarchy for visualization
     def flatten_operations(operations, parent=""):
@@ -1701,104 +1697,64 @@ def visualize_domain_reload_details(reload_entry):
         fig.update_layout(yaxis_tickangle=0)
         st.plotly_chart(fig, use_container_width=True)
         
-        # NEW: Create an icicle plot for hierarchical visualization (replacing sunburst)
-        st.subheader("Domain Reload Operation Hierarchy")
-        
-        # Prepare data by extracting the hierarchical structure
-        def prepare_hierarchy_data(operations, parent_path=""):
+        # Create a hierarchical visualization using a sunburst chart
+        # First, need to properly structure the data
+        def prepare_sunburst_data(operations, parent_id=""):
             data = []
             for i, op in enumerate(operations):
-                op_path = f"{parent_path}/{op['name']}" if parent_path else op['name']
-                # Split the path into components
-                path_parts = op_path.split('/')
-                
+                op_id = f"{parent_id}/{i}" if parent_id else str(i)
                 data.append({
-                    'id': op_path,
-                    'operation': op['name'],
-                    'time_ms': op['time_ms'],
-                    'time_s': op['time_ms'] / 1000,
-                    'percentage': (op['time_ms'] / total_time_ms * 100) if total_time_ms > 0 else 0,
-                    'depth': len(path_parts),
-                    'parent': '/'.join(path_parts[:-1]) if len(path_parts) > 1 else "",
-                    'path': path_parts
+                    'id': op_id,
+                    'parent': parent_id,
+                    'name': op['name'],
+                    'value': op['time_ms']
                 })
-                
-                # Add children
                 if op.get('children'):
-                    data.extend(prepare_hierarchy_data(op.get('children', []), op_path))
-                    
+                    data.extend(prepare_sunburst_data(op['children'], op_id))
             return data
-            
-        hierarchy_data = prepare_hierarchy_data(reload_entry.get('operations', []))
         
-        if hierarchy_data:
-            # Convert to DataFrame
-            hierarchy_df = pd.DataFrame(hierarchy_data)
+        sunburst_data = prepare_sunburst_data(reload_entry.get('operations', []))
+        if sunburst_data:
+            sunburst_df = pd.DataFrame(sunburst_data)
             
-            # Create path columns for hierarchy
-            max_depth = hierarchy_df['depth'].max()
+            st.subheader("Domain Reload Operation Hierarchy")
             
-            # Pad paths to have consistent length
-            for i in range(max_depth):
-                hierarchy_df[f'level_{i}'] = hierarchy_df['path'].apply(
-                    lambda x: x[i] if i < len(x) else None
-                )
-            
-            # Create list of level columns for the path parameter
-            level_cols = [f'level_{i}' for i in range(max_depth)]
-            
-            # Create icicle plot
-            fig = px.icicle(
-                hierarchy_df,
-                path=level_cols,
-                values='time_ms',
-                color='time_ms',
-                color_continuous_scale='RdBu',
-                height=700,
-                hover_data=['time_s', 'percentage'],
-                labels={
-                    'time_ms': 'Time (ms)',
-                    'time_s': 'Time (s)',
-                    'percentage': 'Percentage'
-                }
-            )
-            
-            fig.update_traces(
-                texttemplate="<b>%{label}</b><br>%{value:.1f}ms<br>%{customdata[1]:.1f}%",
-                hovertemplate="<b>%{label}</b><br>Time: %{customdata[0]:.3f}s<br>Percentage: %{customdata[1]:.2f}%"
-            )
-            
-            fig.update_layout(margin=dict(t=30, l=25, r=25, b=25))
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Alternative flame graph style visualization using px.sunburst with maxdepth
-            st.subheader("Domain Reload Flame Graph")
             fig = px.sunburst(
-                hierarchy_df,
-                path=level_cols,
-                values='time_ms',
-                color='percentage',
-                color_continuous_scale='Viridis',
-                height=600,
-                maxdepth=3,  # Limit initial depth for better visibility
-                hover_data=['time_s', 'percentage'],
-                branchvalues='total'
+                sunburst_df,
+                ids='id',
+                parents='parent',
+                names='name',
+                values='value',
+                color='value',
+                color_continuous_scale='RdBu',
+                height=700
             )
-            
-            fig.update_traces(
-                textinfo="label+percent entry",
-                hovertemplate="<b>%{label}</b><br>Time: %{customdata[0]:.3f}s<br>Percentage: %{customdata[1]:.2f}%"
-            )
-            
-            fig.update_layout(margin=dict(t=50, l=25, r=25, b=25))
             st.plotly_chart(fig, use_container_width=True)
+        
+        # Create a treemap visualization as an alternative
+        st.subheader("Domain Reload Operations Treemap")
+        
+        # Restructure data for treemap - use the flattened path
+        treemap_df = op_df.copy()
+        treemap_df['path'] = treemap_df['name'].apply(lambda x: x.split('/'))
+        
+        fig = px.treemap(
+            treemap_df,
+            path=['path'],
+            values='time_ms',
+            color='time_ms',
+            color_continuous_scale='Viridis',
+            height=600
+        )
+        fig.update_traces(textinfo="label+value+percent parent")
+        st.plotly_chart(fig, use_container_width=True)
         
         # Raw data table
-        #with st.expander("View Raw Operation Data"):
-        #    display_df = op_df.copy()
-        #    display_df['time'] = display_df['time_ms'].apply(lambda x: f"{x:.2f}ms")
-        #    display_df['percentage'] = display_df['percentage'].apply(lambda x: f"{x:.2f}%")
-        #    st.dataframe(display_df[['name', 'time', 'percentage']].sort_values('time_ms', ascending=False))
+        # with st.expander("View Raw Operation Data"):
+        #     display_df = op_df.copy()
+        #     display_df['time'] = display_df['time_ms'].apply(lambda x: f"{x:.2f}ms")
+        #     display_df['percentage'] = display_df['percentage'].apply(lambda x: f"{x:.2f}%")
+        #     st.dataframe(display_df[['name', 'time', 'percentage']].sort_values('time_ms', ascending=False))
 
 def check_log_data_completeness(log_file_path, shader_df, import_df, loading_df, build_df, refresh_df, player_build_info, unity_version):
     """Check which data elements are present or missing in the log file."""
