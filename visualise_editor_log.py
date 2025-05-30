@@ -1731,23 +1731,23 @@ def visualize_domain_reload_details(reload_entry):
             )
             st.plotly_chart(fig, use_container_width=True)
         
-        # Create a treemap visualization as an alternative
-        st.subheader("Domain Reload Operations Treemap")
+        # # Create a treemap visualization as an alternative
+        # st.subheader("Domain Reload Operations Treemap")
         
-        # Restructure data for treemap - use the flattened path
-        treemap_df = op_df.copy()
-        treemap_df['path'] = treemap_df['name'].apply(lambda x: x.split('/'))
+        # # Restructure data for treemap - use the flattened path
+        # treemap_df = op_df.copy()
+        # treemap_df['path'] = treemap_df['name'].apply(lambda x: x.split('/'))
         
-        fig = px.treemap(
-            treemap_df,
-            path=['path'],
-            values='time_ms',
-            color='time_ms',
-            color_continuous_scale='Viridis',
-            height=600
-        )
-        fig.update_traces(textinfo="label+value+percent parent")
-        st.plotly_chart(fig, use_container_width=True)
+        # fig = px.treemap(
+        #     treemap_df,
+        #     path=['path'],
+        #     values='time_ms',
+        #     color='time_ms',
+        #     color_continuous_scale='Viridis',
+        #     height=600
+        # )
+        # fig.update_traces(textinfo="label+value+percent parent")
+        # st.plotly_chart(fig, use_container_width=True)
         
         # Raw data table
         # with st.expander("View Raw Operation Data"):
