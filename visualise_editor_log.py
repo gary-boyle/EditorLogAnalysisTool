@@ -455,10 +455,13 @@ def parse_domain_reloads(log_file_path):
                         break
                     k += 1
                 
+                # Default position to continue from if no profiling data is found
+                next_position = k + 1
+                
                 # If we found profiling data, parse the details
+                operations = []
                 if profiling_start_line is not None:
                     # Parse the profiling hierarchy
-                    operations = []
                     operation_stack = []
                     
                     l = profiling_start_line + 1
@@ -500,18 +503,22 @@ def parse_domain_reloads(log_file_path):
                             
                         l += 1
                     
-                    # Create the domain reload entry
-                    domain_reload = {
-                        'timestamp': timestamp,
-                        'timestamp_str': timestamp_str,
-                        'reset_time': reset_time,
-                        'profiling_time_ms': profiling_time,
-                        'operations': operations
-                    }
-                    
-                    domain_reloads.append(domain_reload)
+                    # Update position to continue from
+                    next_position = l
                 
-                i = l  # Continue from where we stopped parsing
+                # Create the domain reload entry
+                domain_reload = {
+                    'timestamp': timestamp,
+                    'timestamp_str': timestamp_str,
+                    'reset_time': reset_time,
+                    'profiling_time_ms': profiling_time,
+                    'operations': operations
+                }
+                
+                domain_reloads.append(domain_reload)
+                
+                # Continue parsing from the next position
+                i = next_position
             else:
                 i += 1
     
@@ -594,6 +601,13 @@ def extract_float(text, pattern):
     match = re.search(pattern, text)
     return float(match.group(1)) if match else None
 
+def format_time(seconds):
+    """Format time in seconds to show both seconds and minutes."""
+    if seconds is None or seconds < 0:
+        return "N/A"
+    minutes = seconds / 60
+    return f"{seconds:.2f}s ({minutes:.1f} minutes)"
+
 def visualize_shader_data(shader_df):
     st.header("Unity Shader Compilation Analytics")
     
@@ -646,6 +660,78 @@ def visualize_shader_data(shader_df):
         st.plotly_chart(fig, use_container_width=True)
     elif 'shader_name' in shader_df.columns:
         st.info("Shader names found but compilation time data is missing.")
+    
+    # NEW: Add compilation time by pass name if available
+    if 'pass_name' in shader_df.columns and 'compilation_seconds' in shader_df.columns and not shader_df['pass_name'].isna().all():
+        st.subheader("Compilation Time by Pass Name")
+        
+        # Group by pass name and sum compilation times
+        pass_name_times = shader_df.groupby('pass_name').agg(
+            total_time=('compilation_seconds', 'sum'),
+            avg_time=('compilation_seconds', 'mean'),
+            count=('compilation_seconds', 'count'),
+            total_variants=('compiled_variants', 'sum') if 'compiled_variants' in shader_df.columns else (None, None)
+        ).reset_index().sort_values('total_time', ascending=False)
+        
+        # Create formatted columns for display
+        pass_name_times['avg_time_formatted'] = pass_name_times['avg_time'].apply(lambda x: f"{x:.3f}s")
+        pass_name_times['total_time_formatted'] = pass_name_times['total_time'].apply(lambda x: f"{x:.2f}s")
+        
+        # Bar chart of compilation time by pass name
+        fig = px.bar(
+            pass_name_times,
+            x='pass_name',
+            y='total_time',
+            text=pass_name_times['count'],
+            labels={'pass_name': 'Pass Name', 'total_time': 'Total Compilation Time (s)', 'count': 'Shader Count'},
+            height=400,
+            color='count'
+        )
+        fig.update_traces(texttemplate='%{text}', textposition='outside')
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Display the detailed table
+        with st.expander("View Pass Name Compilation Details"):
+            display_cols = ['pass_name', 'count', 'total_time_formatted', 'avg_time_formatted']
+            if 'total_variants' in pass_name_times.columns and not pass_name_times['total_variants'].isna().all():
+                display_cols.append('total_variants')
+            st.dataframe(pass_name_times[display_cols])
+    
+    # Add compilation time by pass type if available
+    if 'pass_type' in shader_df.columns and 'compilation_seconds' in shader_df.columns and not shader_df['pass_type'].isna().all():
+        st.subheader("Compilation Time by Pass Type")
+        
+        # Group by pass type and sum compilation times
+        pass_type_times = shader_df.groupby('pass_type').agg(
+            total_time=('compilation_seconds', 'sum'),
+            avg_time=('compilation_seconds', 'mean'),
+            count=('compilation_seconds', 'count'),
+            total_variants=('compiled_variants', 'sum') if 'compiled_variants' in shader_df.columns else (None, None)
+        ).reset_index().sort_values('total_time', ascending=False)
+        
+        # Create a more detailed table
+        pass_type_times['avg_time_formatted'] = pass_type_times['avg_time'].apply(lambda x: f"{x:.3f}s")
+        pass_type_times['total_time_formatted'] = pass_type_times['total_time'].apply(lambda x: f"{x:.2f}s")
+        
+        # Bar chart of compilation time by pass type
+        fig = px.bar(
+            pass_type_times,
+            x='pass_type',
+            y='total_time',
+            text=pass_type_times['count'],
+            labels={'pass_type': 'Pass Type', 'total_time': 'Total Compilation Time (s)', 'count': 'Shader Count'},
+            height=400,
+            color='count'
+        )
+        fig.update_traces(texttemplate='%{text}', textposition='outside')
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Display the detailed table
+        with st.expander("View Pass Type Compilation Details"):
+            display_cols = ['pass_type', 'count', 'total_time_formatted', 'avg_time_formatted']
+            if 'total_variants' in pass_type_times.columns and not pass_type_times['total_variants'].isna().all():
+                display_cols.append('total_variants')
+            st.dataframe(pass_type_times[display_cols])
     
     # Only show variant reduction if we have the necessary columns
     variant_columns = ['full_variants', 'after_filtering', 'after_builtin_stripping', 'after_scriptable_stripping']
@@ -714,7 +800,6 @@ def visualize_shader_data(shader_df):
         with st.expander("View Shader Compilation Raw Data"):
             st.dataframe(sorted_df)
 
-
 def visualize_asset_imports(import_df):
     st.header("Unity Asset Import Analytics")
     
@@ -735,7 +820,7 @@ def visualize_asset_imports(import_df):
         st.metric("Average Import Time", f"{import_df['import_time_seconds'].mean():.4f}s")
     
     # Top slowest imports
-    st.subheader("Slowest Asset Imports")
+    st.subheader("Top 10 Slowest Asset Imports")
     top_n = min(20, len(sorted_df))
     top_imports = sorted_df.head(top_n)
     
@@ -1354,7 +1439,7 @@ def visualize_player_build_info(build_info_entries):
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Build Time", f"{total_duration_sec:.2f}s")
+        st.metric("Total Build Time", format_time(total_duration_sec))
     with col2:
         st.metric("Build Phase", build_info['phase'])
     with col3:
@@ -1376,6 +1461,10 @@ def visualize_player_build_info(build_info_entries):
         })
     
     steps_df = pd.DataFrame(steps_data)
+    
+    if steps_df.empty:
+        st.warning("No build step data available.")
+        return
     
     # Sort by duration (descending)
     sorted_steps_df = steps_df.sort_values('duration_ms', ascending=False)
@@ -1419,52 +1508,70 @@ def visualize_player_build_info(build_info_entries):
     # Timeline visualization
     st.subheader("Build Timeline")
     
-    # Create a proper timeline dataframe with start and end times
-    cumulative_time = 0
-    timeline_data = []
-    
-    # Use original steps order for the timeline
-    for step in build_info['steps']:
-        description = step.get('description', 'Unknown')
-        duration_ms = step.get('duration', 0)
-        duration_sec = duration_ms / 1000
-        start_time = cumulative_time
-        end_time = cumulative_time + duration_sec
+    # Check if we have enough data points for a timeline
+    if len(steps_df) < 2:
+        st.info("At least two build steps are needed to create a timeline visualization.")
+    else:
+        # Create a proper timeline dataframe with start and end times
+        cumulative_time = 0
+        timeline_data = []
         
-        timeline_data.append({
-            'description': description,
-            'start_time': start_time,
-            'end_time': end_time,
-            'duration_sec': duration_sec
-        })
+        # Fix: Ensure steps are in original order and properly formatted
+        for i, step in enumerate(build_info['steps']):
+            # Get step data with proper fallbacks
+            description = step.get('description', f"Step {i+1}")
+            # Make sure description is not empty
+            if not description or description.strip() == "":
+                description = f"Step {i+1}"
+                
+            duration_ms = float(step.get('duration', 0))  # Ensure it's a float
+            duration_sec = duration_ms / 1000
+            
+            # Skip steps with zero duration to avoid timeline issues
+            if duration_sec <= 0:
+                continue
+                
+            start_time = cumulative_time
+            end_time = cumulative_time + duration_sec
+            
+            timeline_data.append({
+                'description': description,
+                'start_time': start_time,
+                'end_time': end_time,
+                'duration_sec': duration_sec
+            })
+            
+            # Update cumulative time for next step
+            cumulative_time = end_time
         
-        # Update cumulative time for next step
-        cumulative_time = end_time
-    
-    timeline_df = pd.DataFrame(timeline_data)
-    
-    fig = px.timeline(
-        timeline_df,
-        x_start='start_time',
-        x_end='end_time',
-        y='description',
-        color='duration_sec',
-        labels={
-            'start_time': 'Time (seconds)',
-            'end_time': 'Time (seconds)',
-            'duration_sec': 'Duration (seconds)'
-        },
-        height=600
-    )
-    
-    # Improve the layout
-    fig.update_yaxes(autorange="reversed")
-    fig.update_layout(
-        xaxis_title="Time (seconds)",
-        yaxis_title="Build Step"
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
+        timeline_df = pd.DataFrame(timeline_data)
+        
+        # If we still have timeline data after filtering
+        if not timeline_df.empty:
+            fig = px.timeline(
+                timeline_df,
+                x_start='start_time',
+                x_end='end_time',
+                y='description',
+                color='duration_sec',
+                labels={
+                    'start_time': 'Time (seconds)',
+                    'end_time': 'Time (seconds)',
+                    'duration_sec': 'Duration (seconds)'
+                },
+                height=600
+            )
+            
+            # Improve the layout
+            fig.update_yaxes(autorange="reversed")
+            fig.update_layout(
+                xaxis_title="Time (seconds)",
+                yaxis_title="Build Step"
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Could not create timeline: no valid duration data in build steps.")
     
     # Raw data in a well-formatted table
     with st.expander("View Build Step Details"):
@@ -1483,8 +1590,8 @@ def visualize_domain_reloads(log_file_path):
         st.warning("No domain reload data found in the log.")
         return
     
-    # Create summary metrics
-    total_time = sum(reload.get('reset_time', 0) for reload in domain_reloads)
+    # Create summary metrics - ensure we handle None values
+    total_time = sum((reload.get('reset_time', 0) or 0) for reload in domain_reloads)
     avg_time = total_time / len(domain_reloads) if domain_reloads else 0
     
     col1, col2, col3 = st.columns(3)
@@ -1501,8 +1608,8 @@ def visualize_domain_reloads(log_file_path):
         reload_data.append({
             'index': i,
             'timestamp': reload.get('timestamp_str', f"Reload {i}"),
-            'reset_time': reload.get('reset_time', 0),
-            'profiling_time_ms': reload.get('profiling_time_ms', 0)
+            'reset_time': reload.get('reset_time', 0) or 0,  # Handle None values
+            'profiling_time_ms': reload.get('profiling_time_ms', 0) or 0  # Handle None values
         })
     
     reload_df = pd.DataFrame(reload_data)
@@ -1525,7 +1632,7 @@ def visualize_domain_reloads(log_file_path):
     selected_reload_idx = st.selectbox(
         "Select a domain reload to analyze in detail:",
         range(len(domain_reloads)),
-        format_func=lambda i: f"Reload #{i}: {domain_reloads[i].get('timestamp_str')} ({domain_reloads[i].get('reset_time', 0):.2f}s)"
+        format_func=lambda i: f"Reload #{i}: {domain_reloads[i].get('timestamp_str')} ({domain_reloads[i].get('reset_time', 0) or 0:.2f}s)"
     )
     
     if st.button("Analyze Selected Domain Reload"):
@@ -1536,12 +1643,16 @@ def visualize_domain_reloads(log_file_path):
 def visualize_domain_reload_details(reload_entry):
     st.header("Domain Reload Analysis")
     
+    # Handle None values
+    reset_time = reload_entry.get('reset_time', 0) or 0
+    profiling_time_ms = reload_entry.get('profiling_time_ms', 0) or 0
+    
     # Display summary metrics
     col1, col2 = st.columns(2)
     with col1:
-        st.metric("Total Domain Reload Time", f"{reload_entry.get('reset_time', 0):.2f}s")
+        st.metric("Total Domain Reload Time", format_time(reset_time))
     with col2:
-        st.metric("Profiling Time", f"{reload_entry.get('profiling_time_ms', 0) / 1000:.2f}s")
+        st.metric("Profiling Time", format_time(profiling_time_ms / 1000))
     
     # Flatten the operations hierarchy for visualization
     def flatten_operations(operations, parent=""):
@@ -1590,64 +1701,104 @@ def visualize_domain_reload_details(reload_entry):
         fig.update_layout(yaxis_tickangle=0)
         st.plotly_chart(fig, use_container_width=True)
         
-        # Create a hierarchical visualization using a sunburst chart
-        # First, need to properly structure the data
-        def prepare_sunburst_data(operations, parent_id=""):
+        # NEW: Create an icicle plot for hierarchical visualization (replacing sunburst)
+        st.subheader("Domain Reload Operation Hierarchy")
+        
+        # Prepare data by extracting the hierarchical structure
+        def prepare_hierarchy_data(operations, parent_path=""):
             data = []
             for i, op in enumerate(operations):
-                op_id = f"{parent_id}/{i}" if parent_id else str(i)
+                op_path = f"{parent_path}/{op['name']}" if parent_path else op['name']
+                # Split the path into components
+                path_parts = op_path.split('/')
+                
                 data.append({
-                    'id': op_id,
-                    'parent': parent_id,
-                    'name': op['name'],
-                    'value': op['time_ms']
+                    'id': op_path,
+                    'operation': op['name'],
+                    'time_ms': op['time_ms'],
+                    'time_s': op['time_ms'] / 1000,
+                    'percentage': (op['time_ms'] / total_time_ms * 100) if total_time_ms > 0 else 0,
+                    'depth': len(path_parts),
+                    'parent': '/'.join(path_parts[:-1]) if len(path_parts) > 1 else "",
+                    'path': path_parts
                 })
+                
+                # Add children
                 if op.get('children'):
-                    data.extend(prepare_sunburst_data(op['children'], op_id))
+                    data.extend(prepare_hierarchy_data(op.get('children', []), op_path))
+                    
             return data
+            
+        hierarchy_data = prepare_hierarchy_data(reload_entry.get('operations', []))
         
-        sunburst_data = prepare_sunburst_data(reload_entry.get('operations', []))
-        if sunburst_data:
-            sunburst_df = pd.DataFrame(sunburst_data)
+        if hierarchy_data:
+            # Convert to DataFrame
+            hierarchy_df = pd.DataFrame(hierarchy_data)
             
-            st.subheader("Domain Reload Operation Hierarchy")
+            # Create path columns for hierarchy
+            max_depth = hierarchy_df['depth'].max()
             
-            fig = px.sunburst(
-                sunburst_df,
-                ids='id',
-                parents='parent',
-                names='name',
-                values='value',
-                color='value',
+            # Pad paths to have consistent length
+            for i in range(max_depth):
+                hierarchy_df[f'level_{i}'] = hierarchy_df['path'].apply(
+                    lambda x: x[i] if i < len(x) else None
+                )
+            
+            # Create list of level columns for the path parameter
+            level_cols = [f'level_{i}' for i in range(max_depth)]
+            
+            # Create icicle plot
+            fig = px.icicle(
+                hierarchy_df,
+                path=level_cols,
+                values='time_ms',
+                color='time_ms',
                 color_continuous_scale='RdBu',
-                height=700
+                height=700,
+                hover_data=['time_s', 'percentage'],
+                labels={
+                    'time_ms': 'Time (ms)',
+                    'time_s': 'Time (s)',
+                    'percentage': 'Percentage'
+                }
             )
+            
+            fig.update_traces(
+                texttemplate="<b>%{label}</b><br>%{value:.1f}ms<br>%{customdata[1]:.1f}%",
+                hovertemplate="<b>%{label}</b><br>Time: %{customdata[0]:.3f}s<br>Percentage: %{customdata[1]:.2f}%"
+            )
+            
+            fig.update_layout(margin=dict(t=30, l=25, r=25, b=25))
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Alternative flame graph style visualization using px.sunburst with maxdepth
+            st.subheader("Domain Reload Flame Graph")
+            fig = px.sunburst(
+                hierarchy_df,
+                path=level_cols,
+                values='time_ms',
+                color='percentage',
+                color_continuous_scale='Viridis',
+                height=600,
+                maxdepth=3,  # Limit initial depth for better visibility
+                hover_data=['time_s', 'percentage'],
+                branchvalues='total'
+            )
+            
+            fig.update_traces(
+                textinfo="label+percent entry",
+                hovertemplate="<b>%{label}</b><br>Time: %{customdata[0]:.3f}s<br>Percentage: %{customdata[1]:.2f}%"
+            )
+            
+            fig.update_layout(margin=dict(t=50, l=25, r=25, b=25))
             st.plotly_chart(fig, use_container_width=True)
         
-        # Create a treemap visualization as an alternative
-        st.subheader("Domain Reload Operations Treemap")
-        
-        # Restructure data for treemap - use the flattened path
-        treemap_df = op_df.copy()
-        treemap_df['path'] = treemap_df['name'].apply(lambda x: x.split('/'))
-        
-        fig = px.treemap(
-            treemap_df,
-            path=['path'],
-            values='time_ms',
-            color='time_ms',
-            color_continuous_scale='Viridis',
-            height=600
-        )
-        fig.update_traces(textinfo="label+value+percent parent")
-        st.plotly_chart(fig, use_container_width=True)
-        
         # Raw data table
-        with st.expander("View Raw Operation Data"):
-            display_df = op_df.copy()
-            display_df['time'] = display_df['time_ms'].apply(lambda x: f"{x:.2f}ms")
-            display_df['percentage'] = display_df['percentage'].apply(lambda x: f"{x:.2f}%")
-            st.dataframe(display_df[['name', 'time', 'percentage']].sort_values('time_ms', ascending=False))
+        #with st.expander("View Raw Operation Data"):
+        #    display_df = op_df.copy()
+        #    display_df['time'] = display_df['time_ms'].apply(lambda x: f"{x:.2f}ms")
+        #    display_df['percentage'] = display_df['percentage'].apply(lambda x: f"{x:.2f}%")
+        #    st.dataframe(display_df[['name', 'time', 'percentage']].sort_values('time_ms', ascending=False))
 
 def check_log_data_completeness(log_file_path, shader_df, import_df, loading_df, build_df, refresh_df, player_build_info, unity_version):
     """Check which data elements are present or missing in the log file."""
@@ -1673,33 +1824,33 @@ def check_log_data_completeness(log_file_path, shader_df, import_df, loading_df,
         has_timestamps = False
     
     if not has_timestamps:
-        issues.append("❗ Timestamp information is missing or incomplete. Time-based analysis may be limited.")
+        issues.append("❗ Timestamp information is missing or incomplete. Time-based analysis may be limited. \n You can enable TimeStamps in Unity Editor -> Preferences -> General -> Timestamp Editor log entries ❗")
     
     # Check for shader compilation data
     if shader_df.empty:
-        issues.append("❗ No shader compilation data found.")
+        issues.append("❗ No shader compilation data found.  Looks like no shaders were compiled in this Editor session. ❗")
     elif 'compilation_seconds' not in shader_df.columns:
-        issues.append("❗ Shader compilation time data is missing. Shader performance analysis will be limited.")
+        issues.append("❗ Shader compilation time data is missing. Shader performance analysis will be limited. ❗")
     
     # Check for asset import data
     if import_df.empty:
-        issues.append("❗ No asset import data found.")
+        issues.append("❗ No asset import data found.  Looks like no assets were imported in this Editor session ❗")
     
     # Check for project loading data
     if loading_df.empty:
-        issues.append("❗ No project loading time data found.")
+        issues.append("❗ No project loading time data found.  This is very unusual ❗")
     
     # Check for build report data
     if build_df.empty:
-        issues.append("❗ No build report data found.")
+        issues.append("❗ No build report data found.  Looks like this Editor session didn't complete a Build ❗")
     
     # Check for asset pipeline refresh data
     if refresh_df.empty:
-        issues.append("❗ No asset pipeline refresh data found.")
+        issues.append("❗ No asset pipeline refresh data found.  Looks like the Asset Pipeline was never refreshed in this Editor Session ❗")
     
     # Check for player build info
     if not player_build_info:
-        issues.append("❗ No player build performance data found.")
+        issues.append("❗ No player build performance data found.  Looks like this Editor session didn't complete a Build ❗")
     
     return issues
 
@@ -1739,24 +1890,103 @@ def visualize_log_data(log_file_path):
     
     # Check if domain reload data exists (just a quick check to decide if we need a tab)
     has_domain_reloads = False
+    domain_reloads = []
     with open(log_file_path, 'r') as file:
         for line in file:
             if "Domain Reload Profiling:" in line:
                 has_domain_reloads = True
+                domain_reloads = parse_domain_reloads(log_file_path)
                 break
     
     # Check data completeness and show summary
     issues = check_log_data_completeness(log_file_path, shader_df, import_df, loading_df, build_df, refresh_df, player_build_info, unity_version)
     
     if issues:
-        with st.expander("⚠️ Log Analysis Summary - Click to expand", expanded=True):
+        with st.expander("⚠️ Log Analysis Summary - Click to expand ⚠️", expanded=True):
             for issue in issues:
                 st.write(issue)
             st.write("The analysis will proceed with available data.")
         st.markdown("---")
     else:
-        st.success("✅ All data types were found in the log file.")
+        st.success("✅ All data types were found in the log file. ✅ ")
         st.markdown("---")
+    
+    # Create a summary section with timing metrics from all tabs
+    st.subheader("📊 Performance Summary 📊")
+    col1, col2, col3 = st.columns(3)
+
+    # Player Build time
+    with col1:
+        total_build_time = None
+        if player_build_info:
+            total_build_time = sum(entry.get('total_duration_sec', 0) for entry in player_build_info)
+        st.metric("Total Build Time", format_time(total_build_time))
+
+    # Project Loading time
+    with col2:
+        total_loading_time = None
+        if not loading_df.empty and 'total_loading_time' in loading_df.columns:
+            total_loading_time = loading_df['total_loading_time'].sum()
+        st.metric("Total Loading Time", format_time(total_loading_time))
+
+    # Domain Reloads time
+    with col3:
+        total_reload_time = None
+        if domain_reloads:
+            total_reload_time = sum((reload.get('reset_time', 0) or 0) for reload in domain_reloads)
+        st.metric("Total Domain Reload Time", format_time(total_reload_time))
+
+    col1, col2, col3 = st.columns(3)
+
+    # Asset Pipeline Refresh time
+    with col1:
+        total_refresh_time = None
+        if not refresh_df.empty and 'total_time' in refresh_df.columns:
+            total_refresh_time = refresh_df['total_time'].sum()
+        st.metric("Total Pipeline Refresh Time", format_time(total_refresh_time))
+
+    # Asset Import time
+    with col2:
+        total_import_time = None
+        if not import_df.empty and 'import_time_seconds' in import_df.columns:
+            total_import_time = import_df['import_time_seconds'].sum()
+        st.metric("Total Asset Import Time", format_time(total_import_time))
+
+    # Shader Compilation time
+    with col3:
+        total_shader_time = None
+        if not shader_df.empty and 'compilation_seconds' in shader_df.columns:
+            total_shader_time = shader_df['compilation_seconds'].sum()
+        st.metric("Total Shader Compilation Time", format_time(total_shader_time))
+    
+    # Calculate session duration if timestamps are available
+    all_timestamps = []
+    
+    # Collect timestamps from all dataframes
+    if not shader_df.empty and 'timestamp' in shader_df.columns:
+        all_timestamps.extend(ts for ts in shader_df['timestamp'] if pd.notna(ts))
+    if not import_df.empty and 'timestamp' in import_df.columns:
+        all_timestamps.extend(ts for ts in import_df['timestamp'] if pd.notna(ts))
+    if not loading_df.empty and 'timestamp' in loading_df.columns:
+        all_timestamps.extend(ts for ts in loading_df['timestamp'] if pd.notna(ts))
+    if not refresh_df.empty and 'timestamp' in refresh_df.columns:
+        all_timestamps.extend(ts for ts in refresh_df['timestamp'] if pd.notna(ts))
+    if player_build_info:
+        all_timestamps.extend(entry.get('timestamp') for entry in player_build_info if entry.get('timestamp'))
+    if domain_reloads:
+        all_timestamps.extend(reload.get('timestamp') for reload in domain_reloads if reload.get('timestamp'))
+    
+    # If we have timestamps, calculate and display session duration
+    if all_timestamps:
+        first_timestamp = min(all_timestamps)
+        last_timestamp = max(all_timestamps)
+        session_duration = (last_timestamp - first_timestamp).total_seconds()
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.metric("Editor Session Duration", format_time(session_duration))
+
+    
+    st.markdown("---")
     
     # Check which data types we have available
     has_build_info = bool(player_build_info)
@@ -1835,7 +2065,22 @@ if __name__ == "__main__":
         log_file = sys.argv[1]
     else:
         st.set_page_config(layout="wide", page_title="Unity Build Log Analyzer")
-        log_file = st.file_uploader("Upload Unity log file", type=["txt", "log"])
+        
+        # File upload with tooltip explaining where to find the log file
+        log_file_help = """
+        Upload your Unity Editor.log file. You can find it at:
+        
+        **Windows:** %LOCALAPPDATA%\\Unity\\Editor\\Editor.log  
+        %LOCALAPPDATA% typically resolves to C:\\Users\\[yourusername]\\AppData\\Local  
+        So, the full path is usually something like C:\\Users\\[yourusername]\\AppData\\Local\\Unity\\Editor\\Editor.log
+        
+        **macOS:** ~/Library/Logs/Unity/Editor.log  
+        You can also use the Console.app utility to find this log file.
+        
+        **Linux:** ~/.config/unity3d/Editor.log
+        """
+        
+        log_file = st.file_uploader("Please Upload your Unity log file (Editor.log)", type=["txt", "log"], help=log_file_help)
         if not log_file:
             st.stop()
     
