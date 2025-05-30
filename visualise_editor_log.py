@@ -398,6 +398,125 @@ def parse_asset_pipeline_refresh_details(log_file_path):
     
     return refresh_details
 
+def parse_domain_reloads(log_file_path):
+    """Extract domain reload information from log file."""
+    # Pattern to match the beginning of a domain reload entry
+    start_pattern = r'(?:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\|.*?\|)?Mono: successfully reloaded assembly'
+    
+    # Pattern to match the domain reload time
+    time_pattern = r'- Finished resetting the current domain, in ([\d.]+) seconds'
+    
+    # Pattern to match domain reload profiling header
+    profiling_pattern = r'Domain Reload Profiling: (\d+)ms'
+    
+    domain_reloads = []
+    counter = 0
+    
+    with open(log_file_path, 'r') as file:
+        content = file.readlines()
+        
+        i = 0
+        while i < len(content):
+            line = content[i]
+            
+            # Look for the start of a domain reload entry
+            start_match = re.search(start_pattern, line)
+            if start_match:
+                timestamp_str = start_match.group(1) if start_match.group(1) else f"DomainReload_{counter}"
+                counter += 1
+                
+                # Parse timestamp if available
+                timestamp = None
+                if timestamp_str and not timestamp_str.startswith("DomainReload_"):
+                    try:
+                        timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
+                    except:
+                        pass
+                
+                # Look for the domain reset time in subsequent lines
+                reset_time = None
+                j = i + 1
+                while j < len(content) and j < i + 10:  # Look ahead max 10 lines
+                    time_match = re.search(time_pattern, content[j])
+                    if time_match:
+                        reset_time = float(time_match.group(1))
+                        break
+                    j += 1
+                
+                # Look for profiling header
+                profiling_time = None
+                profiling_start_line = None
+                k = j + 1
+                while k < len(content) and k < j + 10:  # Look ahead max 10 lines
+                    prof_match = re.search(profiling_pattern, content[k])
+                    if prof_match:
+                        profiling_time = int(prof_match.group(1))
+                        profiling_start_line = k
+                        break
+                    k += 1
+                
+                # If we found profiling data, parse the details
+                if profiling_start_line is not None:
+                    # Parse the profiling hierarchy
+                    operations = []
+                    operation_stack = []
+                    
+                    l = profiling_start_line + 1
+                    while l < len(content) and content[l].strip():
+                        line = content[l]
+                        
+                        # Skip lines that don't contain profiling data
+                        if not re.match(r'\t+', line):
+                            break
+                        
+                        # Determine indent level (number of tabs)
+                        indent = len(re.match(r'^\t+', line).group(0))
+                        
+                        # Extract operation name and time
+                        parts = line.strip().split(' ')
+                        if len(parts) >= 2 and parts[-1].endswith('ms)'):
+                            op_name = ' '.join(parts[:-1])
+                            op_time_str = parts[-1].strip('(ms)')
+                            op_time = int(op_time_str) if op_time_str.isdigit() else float(op_time_str)
+                            
+                            # Create operation entry
+                            operation = {
+                                'name': op_name,
+                                'time_ms': op_time,
+                                'indent_level': indent,
+                                'children': []
+                            }
+                            
+                            # Handle the operation hierarchy
+                            while operation_stack and operation_stack[-1]['indent_level'] >= indent:
+                                operation_stack.pop()
+                            
+                            if operation_stack:
+                                operation_stack[-1]['children'].append(operation)
+                            else:
+                                operations.append(operation)
+                                
+                            operation_stack.append(operation)
+                            
+                        l += 1
+                    
+                    # Create the domain reload entry
+                    domain_reload = {
+                        'timestamp': timestamp,
+                        'timestamp_str': timestamp_str,
+                        'reset_time': reset_time,
+                        'profiling_time_ms': profiling_time,
+                        'operations': operations
+                    }
+                    
+                    domain_reloads.append(domain_reload)
+                
+                i = l  # Continue from where we stopped parsing
+            else:
+                i += 1
+    
+    return domain_reloads
+
 def parse_player_build_info(log_file_path):
     # Updated pattern to make timestamp optional
     build_info_pattern = r'(?:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\|.*?\|)?##utp:(.*?)$'
@@ -1354,6 +1473,182 @@ def visualize_player_build_info(build_info_entries):
         display_df['percentage'] = display_df['percentage'].apply(lambda x: f"{x:.2f}%")
         st.dataframe(display_df[['description', 'duration', 'percentage']])
 
+def visualize_domain_reloads(log_file_path):
+    st.header("Unity Domain Reload Analysis")
+    
+    # Parse domain reload entries
+    domain_reloads = parse_domain_reloads(log_file_path)
+    
+    if not domain_reloads:
+        st.warning("No domain reload data found in the log.")
+        return
+    
+    # Create summary metrics
+    total_time = sum(reload.get('reset_time', 0) for reload in domain_reloads)
+    avg_time = total_time / len(domain_reloads) if domain_reloads else 0
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Domain Reloads", len(domain_reloads))
+    with col2:
+        st.metric("Total Reload Time", f"{total_time:.2f}s")
+    with col3:
+        st.metric("Average Reload Time", f"{avg_time:.2f}s")
+    
+    # Create a basic overview of all domain reloads
+    reload_data = []
+    for i, reload in enumerate(domain_reloads):
+        reload_data.append({
+            'index': i,
+            'timestamp': reload.get('timestamp_str', f"Reload {i}"),
+            'reset_time': reload.get('reset_time', 0),
+            'profiling_time_ms': reload.get('profiling_time_ms', 0)
+        })
+    
+    reload_df = pd.DataFrame(reload_data)
+    
+    # Bar chart of domain reload times
+    st.subheader("Domain Reload Times")
+    
+    fig = px.bar(
+        reload_df,
+        x='index',
+        y='reset_time',
+        labels={'reset_time': 'Reset Time (seconds)', 'index': 'Domain Reload #'},
+        height=400
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Add option to select a specific domain reload
+    st.subheader("Detailed Domain Reload Analysis")
+    
+    selected_reload_idx = st.selectbox(
+        "Select a domain reload to analyze in detail:",
+        range(len(domain_reloads)),
+        format_func=lambda i: f"Reload #{i}: {domain_reloads[i].get('timestamp_str')} ({domain_reloads[i].get('reset_time', 0):.2f}s)"
+    )
+    
+    if st.button("Analyze Selected Domain Reload"):
+        with st.spinner("Analyzing domain reload details..."):
+            # Visualize the selected domain reload
+            visualize_domain_reload_details(domain_reloads[selected_reload_idx])
+
+def visualize_domain_reload_details(reload_entry):
+    st.header("Domain Reload Analysis")
+    
+    # Display summary metrics
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Total Domain Reload Time", f"{reload_entry.get('reset_time', 0):.2f}s")
+    with col2:
+        st.metric("Profiling Time", f"{reload_entry.get('profiling_time_ms', 0) / 1000:.2f}s")
+    
+    # Flatten the operations hierarchy for visualization
+    def flatten_operations(operations, parent=""):
+        flat_ops = []
+        for op in operations:
+            full_name = f"{parent}/{op['name']}" if parent else op['name']
+            flat_ops.append({
+                'name': full_name,
+                'time_ms': op['time_ms'],
+                'indent_level': op['indent_level']
+            })
+            flat_ops.extend(flatten_operations(op.get('children', []), full_name))
+        return flat_ops
+    
+    flat_operations = flatten_operations(reload_entry.get('operations', []))
+    
+    # Create a DataFrame for operations
+    if flat_operations:
+        op_df = pd.DataFrame(flat_operations)
+        
+        # Add time in seconds
+        op_df['time_s'] = op_df['time_ms'] / 1000
+        
+        # Add percentage of total time
+        total_time_ms = reload_entry.get('profiling_time_ms', 0)
+        op_df['percentage'] = op_df['time_ms'] / total_time_ms * 100 if total_time_ms > 0 else 0
+        
+        # Sort by time for the bar chart
+        sorted_op_df = op_df.sort_values('time_ms', ascending=False).head(15)
+        
+        # Bar chart of top operations
+        st.subheader("Top Operations by Time")
+        
+        fig = px.bar(
+            sorted_op_df,
+            y='name',
+            x='time_s',
+            orientation='h',
+            text=sorted_op_df['percentage'].apply(lambda x: f"{x:.1f}%"),
+            labels={'time_s': 'Time (seconds)', 'name': 'Operation'},
+            height=600,
+            color='percentage',
+            color_continuous_scale='Viridis'
+        )
+        fig.update_traces(textposition='outside')
+        fig.update_layout(yaxis_tickangle=0)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Create a hierarchical visualization using a sunburst chart
+        # First, need to properly structure the data
+        def prepare_sunburst_data(operations, parent_id=""):
+            data = []
+            for i, op in enumerate(operations):
+                op_id = f"{parent_id}/{i}" if parent_id else str(i)
+                data.append({
+                    'id': op_id,
+                    'parent': parent_id,
+                    'name': op['name'],
+                    'value': op['time_ms']
+                })
+                if op.get('children'):
+                    data.extend(prepare_sunburst_data(op['children'], op_id))
+            return data
+        
+        sunburst_data = prepare_sunburst_data(reload_entry.get('operations', []))
+        if sunburst_data:
+            sunburst_df = pd.DataFrame(sunburst_data)
+            
+            st.subheader("Domain Reload Operation Hierarchy")
+            
+            fig = px.sunburst(
+                sunburst_df,
+                ids='id',
+                parents='parent',
+                names='name',
+                values='value',
+                color='value',
+                color_continuous_scale='RdBu',
+                height=700
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # Create a treemap visualization as an alternative
+        st.subheader("Domain Reload Operations Treemap")
+        
+        # Restructure data for treemap - use the flattened path
+        treemap_df = op_df.copy()
+        treemap_df['path'] = treemap_df['name'].apply(lambda x: x.split('/'))
+        
+        fig = px.treemap(
+            treemap_df,
+            path=['path'],
+            values='time_ms',
+            color='time_ms',
+            color_continuous_scale='Viridis',
+            height=600
+        )
+        fig.update_traces(textinfo="label+value+percent parent")
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Raw data table
+        with st.expander("View Raw Operation Data"):
+            display_df = op_df.copy()
+            display_df['time'] = display_df['time_ms'].apply(lambda x: f"{x:.2f}ms")
+            display_df['percentage'] = display_df['percentage'].apply(lambda x: f"{x:.2f}%")
+            st.dataframe(display_df[['name', 'time', 'percentage']].sort_values('time_ms', ascending=False))
+
 def check_log_data_completeness(log_file_path, shader_df, import_df, loading_df, build_df, refresh_df, player_build_info, unity_version):
     """Check which data elements are present or missing in the log file."""
     issues = []
@@ -1442,6 +1737,14 @@ def visualize_log_data(log_file_path):
     refresh_df = parse_asset_pipeline_refresh(log_file_path)
     player_build_info = parse_player_build_info(log_file_path)
     
+    # Check if domain reload data exists (just a quick check to decide if we need a tab)
+    has_domain_reloads = False
+    with open(log_file_path, 'r') as file:
+        for line in file:
+            if "Domain Reload Profiling:" in line:
+                has_domain_reloads = True
+                break
+    
     # Check data completeness and show summary
     issues = check_log_data_completeness(log_file_path, shader_df, import_df, loading_df, build_df, refresh_df, player_build_info, unity_version)
     
@@ -1471,6 +1774,8 @@ def visualize_log_data(log_file_path):
         tab_titles.append("Build Report")
     if has_loading_data:
         tab_titles.append("Project Loading")
+    if has_domain_reloads:
+        tab_titles.append("Domain Reloads")
     if has_refresh_data:
         tab_titles.append("Asset Pipeline Refreshes")
     if has_import_data:
@@ -1504,9 +1809,14 @@ def visualize_log_data(log_file_path):
             visualize_loading_times(loading_df)
         tab_index += 1
     
+    if has_domain_reloads:
+        with tabs[tab_index]:
+            visualize_domain_reloads(log_file_path)
+        tab_index += 1
+    
     if has_refresh_data:
         with tabs[tab_index]:
-            visualize_pipeline_refreshes(refresh_df, log_file_path)
+            visualize_pipeline_refreshes(refresh_df, log_file_path)  # Pass log_file_path
         tab_index += 1
     
     if has_import_data:
