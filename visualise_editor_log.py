@@ -584,6 +584,254 @@ def parse_player_build_info(log_file_path):
     
     return build_info_entries
 
+def parse_il2cpp_processing(log_file_path):
+    """Extract IL2CPP processing data from the log file."""
+    # Patterns for IL2CPP entries
+    patterns = [
+        # EILPP format 1
+        (r'\s+- EILPP\s*:\s*([\w\.]+)\s*:\s*:\s*(\d+)ms\s*\(~(\d+)ms\)',
+         lambda m: {'assembly': m.group(1), 'total_time_ms': int(m.group(2)), 'self_time_ms': int(m.group(3))}),
+        
+        # EILPP format 2 - subprocess
+        (r'\s+- EILPP\s*:\s*([\w\.]+)\s*:\s*([\w]+):\s*(\d+)ms',
+         lambda m: {'is_subprocess': True, 'assembly': m.group(1), 'process': m.group(2), 'time_ms': int(m.group(3))}),
+        
+        # ILPostProcess format - [index/total time] or [time]
+        (r'\[\s*(?:\d+/\d+\s+)?(\d+)s\]\s+ILPostProcess\s+(.*\.dll)',
+         lambda m: {'assembly': extract_assembly_name(m.group(2)), 'total_time_ms': int(m.group(1)) * 1000, 'self_time_ms': int(m.group(1)) * 1000, 'process': 'ILPostProcess'})
+    ]
+    
+    def extract_assembly_name(path):
+        """Extract assembly name from file path."""
+        match = re.search(r'[/\\]?([\w\.]+)\.dll', path)
+        return match.group(1) if match else path
+    
+    il2cpp_data = []
+    current_assembly = None
+    assembly_steps = []
+    
+    with open(log_file_path, 'r', errors='ignore') as file:
+        for line in file:
+            # Try to match each pattern
+            for pattern, handler in patterns:
+                match = re.search(pattern, line)
+                if match:
+                    result = handler(match)
+                    
+                    # Handle subprocess entries
+                    if result.get('is_subprocess', False):
+                        if current_assembly and current_assembly['assembly'] == result['assembly']:
+                            assembly_steps.append({
+                                'assembly': result['assembly'],
+                                'process': result['process'],
+                                'time_ms': result['time_ms']
+                            })
+                        break
+                    
+                    # Handle main entries (save previous if exists)
+                    if current_assembly:
+                        il2cpp_data.append({
+                            'assembly': current_assembly['assembly'],
+                            'total_time_ms': current_assembly['total_time_ms'],
+                            'self_time_ms': current_assembly.get('self_time_ms', current_assembly['total_time_ms']),
+                            'steps': assembly_steps
+                        })
+                    
+                    # If this is an ILPostProcess entry, add it directly
+                    if result.get('process') == 'ILPostProcess':
+                        il2cpp_data.append({
+                            'assembly': result['assembly'],
+                            'total_time_ms': result['total_time_ms'],
+                            'self_time_ms': result['self_time_ms'],
+                            'process': 'ILPostProcess',
+                            'steps': []
+                        })
+                        current_assembly = None
+                        assembly_steps = []
+                    else:
+                        # Start a new assembly
+                        current_assembly = result
+                        assembly_steps = []
+                    break
+    
+    # Add the last assembly if exists
+    if current_assembly:
+        il2cpp_data.append({
+            'assembly': current_assembly['assembly'],
+            'total_time_ms': current_assembly['total_time_ms'],
+            'self_time_ms': current_assembly.get('self_time_ms', current_assembly['total_time_ms']),
+            'steps': assembly_steps
+        })
+    
+    return il2cpp_data
+
+def parse_tundra_build_info(log_file_path):
+    """Extract Tundra build information from the log file."""
+    tundra_pattern = r'\*\*\* Tundra build success \((\d+\.\d+) seconds - (\d+:\d+:\d+)\), (\d+) items updated, (\d+) evaluated'
+    
+    tundra_info = []
+    
+    with open(log_file_path, 'r') as file:
+        for line in file:
+            match = re.search(tundra_pattern, line)
+            if match:
+                tundra_info.append({
+                    'build_time_seconds': float(match.group(1)),
+                    'build_time_formatted': match.group(2),
+                    'items_updated': int(match.group(3)),
+                    'items_evaluated': int(match.group(4))
+                })
+    
+    return tundra_info
+
+def visualize_il2cpp_data(il2cpp_data):
+    
+    st.header("IL2CPP Processing Analysis")
+    
+    if not il2cpp_data:
+        st.warning("No IL2CPP processing data found in the log.")
+        
+        # Add debug information to help troubleshoot
+        with st.expander("Debug Information"):
+            st.write("""
+            IL2CPP data is typically found in patterns like:
+            
+            ```
+            - EILPP : Unity.Transforms.Hybrid : : 153ms (~152ms)
+              - EILPP : Unity.Transforms.Hybrid : WriteAssembly: 1ms
+            ```
+            
+            or
+            
+            ```
+            [ 896/1250  2s] ILPostProcess Library/Bee/artifacts/1900b0aPDevDbg.dag/post-processed/Unity.Physics.dll
+            ```
+            
+            Please check if your log file contains these patterns.
+            """)
+        return
+    
+    # Calculate summary metrics
+    total_assemblies = len(il2cpp_data)
+    total_time_ms = sum(entry['total_time_ms'] for entry in il2cpp_data)
+    total_time_sec = total_time_ms / 1000
+    
+    # Display summary metrics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Assemblies Processed", total_assemblies)
+    with col2:
+        st.metric("Total Processing Time", f"{total_time_sec:.2f}s")
+    with col3:
+        st.metric("Average Time per Assembly", f"{total_time_sec / total_assemblies:.2f}s" if total_assemblies > 0 else "N/A")
+    
+    # Sort assemblies by processing time
+    sorted_data = sorted(il2cpp_data, key=lambda x: x['total_time_ms'], reverse=True)
+    
+    # Create DataFrame for the assemblies
+    assembly_data = []
+    for entry in sorted_data:
+        assembly_data.append({
+            'Assembly': entry['assembly'],
+            'Total Time (ms)': entry['total_time_ms'],
+            'Self Time (ms)': entry.get('self_time_ms', entry['total_time_ms']),
+            'Steps': len(entry.get('steps', [])),
+            'Overhead (ms)': entry['total_time_ms'] - sum(step['time_ms'] for step in entry.get('steps', []))
+        })
+    
+    assembly_df = pd.DataFrame(assembly_data)
+    
+    # Show bar chart of top assemblies by processing time
+    st.subheader("Top Assemblies by IL2CPP Processing Time")
+    
+    # Take top 15 assemblies for the chart
+    top_assemblies_df = assembly_df.head(15).copy()
+    top_assemblies_df['Total Time (s)'] = top_assemblies_df['Total Time (ms)'] / 1000
+    
+    fig = px.bar(
+        top_assemblies_df,
+        x='Assembly',
+        y='Total Time (s)',
+        text='Total Time (s)',
+        height=500,
+        color='Total Time (s)',
+        labels={'Total Time (s)': 'Processing Time (seconds)'}
+    )
+    fig.update_traces(texttemplate='%{text:.2f}s', textposition='outside')
+    fig.update_layout(xaxis_tickangle=-45)
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Show detailed breakdown of an assembly if selected
+    st.subheader("Assembly Processing Details")
+    
+    # Let user select an assembly to see detailed steps
+    selected_assembly = st.selectbox(
+        "Select an assembly to see detailed processing steps:",
+        [entry['assembly'] for entry in sorted_data],
+        format_func=lambda x: f"{x} ({next(entry['total_time_ms'] for entry in sorted_data if entry['assembly'] == x):.0f}ms)"
+    )
+    
+    # Find the selected assembly data
+    selected_data = next((entry for entry in sorted_data if entry['assembly'] == selected_assembly), None)
+    
+    if selected_data:
+        # Calculate step data
+        steps = selected_data.get('steps', [])
+        
+        if steps:
+            step_data = []
+            for step in steps:
+                step_data.append({
+                    'Process': step['process'],
+                    'Time (ms)': step['time_ms'],
+                    'Percentage': (step['time_ms'] / selected_data['total_time_ms']) * 100
+                })
+            
+            step_df = pd.DataFrame(step_data)
+            
+            # Create pie chart of processing steps
+            fig = px.pie(
+                step_df,
+                values='Time (ms)',
+                names='Process',
+                title=f"{selected_assembly} Processing Steps",
+                height=400
+            )
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Show step data table
+            st.write("### Processing Steps")
+            step_df['Percentage'] = step_df['Percentage'].apply(lambda x: f"{x:.2f}%")
+            step_df['Time'] = step_df['Time (ms)'].apply(lambda x: f"{x}ms")
+            st.dataframe(step_df[['Process', 'Time', 'Percentage']])
+        else:
+            st.info(f"No detailed processing steps available for {selected_assembly}")
+        
+        # Show total time and self time
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Total Time", f"{selected_data['total_time_ms']}ms")
+        with col2:
+            st.metric("Self Time", f"{selected_data.get('self_time_ms', selected_data['total_time_ms'])}ms")
+    
+    # Show all assembly data in a table
+    st.subheader("All IL2CPP Processing Data")
+    with st.expander("Show Raw Assembly Data"):
+        display_df = assembly_df.copy()
+        display_df['Total Time'] = display_df['Total Time (ms)'].apply(lambda x: f"{x}ms")
+        display_df['Self Time'] = display_df['Self Time (ms)'].apply(lambda x: f"{x}ms")
+        st.dataframe(display_df[['Assembly', 'Total Time', 'Self Time', 'Steps']])
+
+def enhance_build_info_with_tundra(player_build_info, tundra_info):
+    """Update player build info with Tundra build information if available."""
+    if tundra_info and player_build_info:
+        # Add Tundra info to player build info
+        for build in player_build_info:
+            build['tundra_info'] = tundra_info
+        return True
+    return False
+
 def convert_to_mb(value, unit):
     """Convert a size value to MB"""
     unit = unit.lower()
@@ -1507,7 +1755,7 @@ def visualize_player_build_info(build_info_entries):
     
     # Timeline visualization
     st.subheader("Build Timeline")
-    
+
     # Check if we have enough data points for a timeline
     if len(steps_df) < 2:
         st.info("At least two build steps are needed to create a timeline visualization.")
@@ -1515,6 +1763,10 @@ def visualize_player_build_info(build_info_entries):
         # Create a proper timeline dataframe with start and end times
         cumulative_time = 0
         timeline_data = []
+        
+        # Use a reference start time (now)
+        import datetime
+        reference_time = datetime.datetime.now()
         
         # Fix: Ensure steps are in original order and properly formatted
         for i, step in enumerate(build_info['steps']):
@@ -1531,8 +1783,9 @@ def visualize_player_build_info(build_info_entries):
             if duration_sec <= 0:
                 continue
                 
-            start_time = cumulative_time
-            end_time = cumulative_time + duration_sec
+            # Convert seconds to datetime objects
+            start_time = reference_time + datetime.timedelta(seconds=cumulative_time)
+            end_time = reference_time + datetime.timedelta(seconds=cumulative_time + duration_sec)
             
             timeline_data.append({
                 'description': description,
@@ -1542,7 +1795,7 @@ def visualize_player_build_info(build_info_entries):
             })
             
             # Update cumulative time for next step
-            cumulative_time = end_time
+            cumulative_time += duration_sec
         
         timeline_df = pd.DataFrame(timeline_data)
         
@@ -1555,8 +1808,6 @@ def visualize_player_build_info(build_info_entries):
                 y='description',
                 color='duration_sec',
                 labels={
-                    'start_time': 'Time (seconds)',
-                    'end_time': 'Time (seconds)',
                     'duration_sec': 'Duration (seconds)'
                 },
                 height=600
@@ -1565,14 +1816,44 @@ def visualize_player_build_info(build_info_entries):
             # Improve the layout
             fig.update_yaxes(autorange="reversed")
             fig.update_layout(
-                xaxis_title="Time (seconds)",
+                xaxis_title="Time",
                 yaxis_title="Build Step"
+            )
+            
+            # Format x-axis to show only the time portion
+            fig.update_xaxes(
+                tickformat="%H:%M:%S",
+                tickangle=0
             )
             
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.warning("Could not create timeline: no valid duration data in build steps.")
-    
+
+    # Show Tundra build information if available
+    if 'tundra_info' in build_info and build_info['tundra_info']:
+        st.subheader("🏗 Tundra Build Information")
+        tundra_data = build_info['tundra_info']
+        
+        for i, tundra in enumerate(tundra_data):
+            with st.container():
+                if i > 0:
+                    st.markdown("---")
+                    
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Build Time", f"{tundra['build_time_seconds']:.2f}s")
+                with col2:
+                    st.metric("Items Updated", f"{tundra['items_updated']}")
+                with col3:
+                    st.metric("Items Evaluated", f"{tundra['items_evaluated']}")
+                
+                # Calculate and display update ratio
+                if tundra['items_evaluated'] > 0:
+                    update_ratio = (tundra['items_updated'] / tundra['items_evaluated']) * 100
+                    st.progress(update_ratio / 100)
+                    st.text(f"Update Ratio: {update_ratio:.1f}% ({tundra['items_updated']} of {tundra['items_evaluated']} items needed updating)")
+
     # Raw data in a well-formatted table
     with st.expander("View Build Step Details"):
         display_df = sorted_steps_df.copy()
@@ -1843,7 +2124,18 @@ def visualize_log_data(log_file_path):
     build_df, total_build_size, total_build_unit = parse_build_report(log_file_path)
     refresh_df = parse_asset_pipeline_refresh(log_file_path)
     player_build_info = parse_player_build_info(log_file_path)
-    
+    il2cpp_data = parse_il2cpp_processing(log_file_path)
+
+
+    # Parse Tundra build info
+    tundra_info = parse_tundra_build_info(log_file_path)
+    has_tundra_info = bool(tundra_info)
+
+    # Enhance build info with Tundra data if available
+    if has_tundra_info:
+        enhance_build_info_with_tundra(player_build_info, tundra_info)
+
+
     # Check if domain reload data exists (just a quick check to decide if we need a tab)
     has_domain_reloads = False
     domain_reloads = []
@@ -1951,7 +2243,10 @@ def visualize_log_data(log_file_path):
     has_refresh_data = not refresh_df.empty
     has_import_data = not import_df.empty
     has_shader_data = not shader_df.empty and ('compilation_seconds' in shader_df.columns or 'shader_name' in shader_df.columns)
-    
+    # Parse IL2CPP data
+    has_il2cpp_data = bool(il2cpp_data)
+
+
     # Create tabs for different visualizations
     tab_titles = []
     if has_build_info:
@@ -1968,6 +2263,8 @@ def visualize_log_data(log_file_path):
         tab_titles.append("Asset Imports")
     if has_shader_data:
         tab_titles.append("Shader Compilation")
+    if has_il2cpp_data:
+        tab_titles.append("IL2CPP Processing")
     
     # If we don't have any data, show a message
     if not tab_titles:
@@ -2013,6 +2310,11 @@ def visualize_log_data(log_file_path):
     if has_shader_data:
         with tabs[tab_index]:
             visualize_shader_data(shader_df)
+        tab_index += 1
+        
+    if has_il2cpp_data:
+        with tabs[tab_index]:
+            visualize_il2cpp_data(il2cpp_data)
 
 if __name__ == "__main__":
     # For testing with sample data
