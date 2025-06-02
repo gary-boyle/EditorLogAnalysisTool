@@ -2924,6 +2924,21 @@ def generate_pdf_report(log_file_path, parsing_data):
     subheading_style = styles['Heading2']
     normal_style = styles['Normal']
     
+    # Create a cell style for tables that supports wrapping
+    cell_style = ParagraphStyle(
+        'CellStyle',
+        parent=normal_style,
+        fontSize=9,
+        leading=12,  # Line height
+        wordWrap='CJK'  # Enable word wrapping
+    )
+    
+    # Helper function to create wrapped text paragraphs for table cells
+    def wrap_cell_text(text):
+        if not isinstance(text, str):
+            text = str(text)
+        return Paragraph(text, cell_style)
+    
     # Create a list to hold the elements for the PDF
     elements = []
     
@@ -2975,11 +2990,20 @@ def generate_pdf_report(log_file_path, parsing_data):
     
     # Add summary table if we have data
     if summary_data:
-        summary_table = Table(summary_data, colWidths=[2.5*inch, 2.5*inch])
+        # Apply text wrapping to each cell
+        wrapped_summary_data = []
+        for row in summary_data:
+            wrapped_summary_data.append([
+                wrap_cell_text(row[0]), 
+                wrap_cell_text(row[1])
+            ])
+            
+        summary_table = Table(wrapped_summary_data, colWidths=[2.5*inch, 2.5*inch])
         summary_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3004,11 +3028,20 @@ def generate_pdf_report(log_file_path, parsing_data):
             ["Build Steps", str(len(build_info['steps']))]
         ]
         
-        build_table = Table(build_summary, colWidths=[2.5*inch, 2.5*inch])
+        # Apply text wrapping
+        wrapped_build_summary = []
+        for row in build_summary:
+            wrapped_build_summary.append([
+                wrap_cell_text(row[0]), 
+                wrap_cell_text(row[1])
+            ])
+            
+        build_table = Table(wrapped_build_summary, colWidths=[2.5*inch, 2.5*inch])
         build_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3036,11 +3069,14 @@ def generate_pdf_report(log_file_path, parsing_data):
             # Create header row
             step_table_data = [["Build Step", "Duration (s)"]]
             
+            # Apply wrapping to header
+            step_table_data[0] = [wrap_cell_text(cell) for cell in step_table_data[0]]
+            
             # Add top steps
             for _, row in top_steps.iterrows():
                 step_table_data.append([
-                    row['description'],
-                    f"{row['duration_sec']:.2f}s"
+                    wrap_cell_text(row['description']),
+                    wrap_cell_text(f"{row['duration_sec']:.2f}s")
                 ])
             
             step_table = Table(step_table_data, colWidths=[4*inch, 1*inch])
@@ -3048,6 +3084,7 @@ def generate_pdf_report(log_file_path, parsing_data):
                 ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
                 ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
                 ('FONTSIZE', (0, 0), (-1, -1), 10),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3075,11 +3112,20 @@ def generate_pdf_report(log_file_path, parsing_data):
             ["User Assets Size", user_assets_size]
         ]
         
-        report_table = Table(build_report_summary, colWidths=[2.5*inch, 2.5*inch])
+        # Apply text wrapping
+        wrapped_report_summary = []
+        for row in build_report_summary:
+            wrapped_report_summary.append([
+                wrap_cell_text(row[0]), 
+                wrap_cell_text(row[1])
+            ])
+            
+        report_table = Table(wrapped_report_summary, colWidths=[2.5*inch, 2.5*inch])
         report_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3099,12 +3145,15 @@ def generate_pdf_report(log_file_path, parsing_data):
             # Create header row
             category_table_data = [["Category", "Size", "Percentage"]]
             
+            # Apply wrapping to header
+            category_table_data[0] = [wrap_cell_text(cell) for cell in category_table_data[0]]
+            
             # Add top categories
             for _, row in vis_df.iterrows():
                 category_table_data.append([
-                    row['category'],
-                    f"{row['size_value']} {row['size_unit']}",
-                    f"{row['percentage']}%"
+                    wrap_cell_text(row['category']),
+                    wrap_cell_text(f"{row['size_value']} {row['size_unit']}"),
+                    wrap_cell_text(f"{row['percentage']}%")
                 ])
             
             category_table = Table(category_table_data, colWidths=[2.5*inch, 1.5*inch, 1*inch])
@@ -3112,6 +3161,7 @@ def generate_pdf_report(log_file_path, parsing_data):
                 ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
                 ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
                 ('FONTSIZE', (0, 0), (-1, -1), 10),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3136,11 +3186,20 @@ def generate_pdf_report(log_file_path, parsing_data):
         if entry['scene_opening_time'] is not None:
             loading_summary.append(["Scene Opening Time", f"{entry['scene_opening_time']:.3f}s"])
         
-        loading_table = Table(loading_summary, colWidths=[2.5*inch, 2.5*inch])
+        # Apply text wrapping
+        wrapped_loading_summary = []
+        for row in loading_summary:
+            wrapped_loading_summary.append([
+                wrap_cell_text(row[0]), 
+                wrap_cell_text(row[1])
+            ])
+            
+        loading_table = Table(wrapped_loading_summary, colWidths=[2.5*inch, 2.5*inch])
         loading_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3165,15 +3224,22 @@ def generate_pdf_report(log_file_path, parsing_data):
         # Create component breakdown table
         component_data = [["Component", "Time (s)"]]
         
+        # Apply wrapping to header
+        component_data[0] = [wrap_cell_text(cell) for cell in component_data[0]]
+        
         for comp, name in subcomponent_names.items():
             if entry[comp] is not None:
-                component_data.append([name, f"{entry[comp]:.3f}s"])
+                component_data.append([
+                    wrap_cell_text(name),
+                    wrap_cell_text(f"{entry[comp]:.3f}s")
+                ])
         
         component_table = Table(component_data, colWidths=[3*inch, 2*inch])
         component_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3196,11 +3262,20 @@ def generate_pdf_report(log_file_path, parsing_data):
             ["Average Reload Time", f"{avg_time:.2f}s"]
         ]
         
-        reload_table = Table(reload_summary, colWidths=[2.5*inch, 2.5*inch])
+        # Apply text wrapping
+        wrapped_reload_summary = []
+        for row in reload_summary:
+            wrapped_reload_summary.append([
+                wrap_cell_text(row[0]), 
+                wrap_cell_text(row[1])
+            ])
+            
+        reload_table = Table(wrapped_reload_summary, colWidths=[2.5*inch, 2.5*inch])
         reload_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3218,11 +3293,20 @@ def generate_pdf_report(log_file_path, parsing_data):
             ["Total Refresh Time", f"{refresh_df['total_time'].sum():.3f}s"]
         ]
         
-        refresh_table = Table(refresh_summary, colWidths=[2.5*inch, 2.5*inch])
+        # Apply text wrapping
+        wrapped_refresh_summary = []
+        for row in refresh_summary:
+            wrapped_refresh_summary.append([
+                wrap_cell_text(row[0]), 
+                wrap_cell_text(row[1])
+            ])
+            
+        refresh_table = Table(wrapped_refresh_summary, colWidths=[2.5*inch, 2.5*inch])
         refresh_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3240,11 +3324,14 @@ def generate_pdf_report(log_file_path, parsing_data):
             # Create header row
             refresh_table_data = [["Initiator", "Time (s)"]]
             
+            # Apply wrapping to header
+            refresh_table_data[0] = [wrap_cell_text(cell) for cell in refresh_table_data[0]]
+            
             # Add top refreshes
             for _, row in top_refreshes.iterrows():
                 refresh_table_data.append([
-                    row['initiator'],
-                    f"{row['total_time']:.2f}s"
+                    wrap_cell_text(row['initiator']),
+                    wrap_cell_text(f"{row['total_time']:.2f}s")
                 ])
             
             top_refresh_table = Table(refresh_table_data, colWidths=[4*inch, 1*inch])
@@ -3252,6 +3339,7 @@ def generate_pdf_report(log_file_path, parsing_data):
                 ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
                 ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
                 ('FONTSIZE', (0, 0), (-1, -1), 10),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3271,11 +3359,20 @@ def generate_pdf_report(log_file_path, parsing_data):
             # Removed Average Import Time as requested
         ]
         
-        import_table = Table(import_summary, colWidths=[2.5*inch, 2.5*inch])
+        # Apply text wrapping
+        wrapped_import_summary = []
+        for row in import_summary:
+            wrapped_import_summary.append([
+                wrap_cell_text(row[0]), 
+                wrap_cell_text(row[1])
+            ])
+            
+        import_table = Table(wrapped_import_summary, colWidths=[2.5*inch, 2.5*inch])
         import_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3293,12 +3390,15 @@ def generate_pdf_report(log_file_path, parsing_data):
             # Create header row
             import_table_data = [["Asset Name", "Type", "Time (s)"]]
             
+            # Apply wrapping to header
+            import_table_data[0] = [wrap_cell_text(cell) for cell in import_table_data[0]]
+            
             # Add top imports
             for _, row in top_imports.iterrows():
                 import_table_data.append([
-                    row['asset_name'],
-                    row['importer_type'],
-                    f"{row['import_time_seconds']:.2f}s"
+                    wrap_cell_text(row['asset_name']),
+                    wrap_cell_text(row['importer_type']),
+                    wrap_cell_text(f"{row['import_time_seconds']:.2f}s")
                 ])
             
             top_import_table = Table(import_table_data, colWidths=[2.5*inch, 1.5*inch, 1*inch])
@@ -3306,6 +3406,7 @@ def generate_pdf_report(log_file_path, parsing_data):
                 ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
                 ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
                 ('FONTSIZE', (0, 0), (-1, -1), 10),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3330,11 +3431,20 @@ def generate_pdf_report(log_file_path, parsing_data):
             if 'compiled_variants' in shader_df.columns:
                 shader_summary.append(["Total Variants Compiled", str(int(shader_df['compiled_variants'].sum()))])
             
-            shader_table = Table(shader_summary, colWidths=[2.5*inch, 2.5*inch])
+            # Apply text wrapping
+            wrapped_shader_summary = []
+            for row in shader_summary:
+                wrapped_shader_summary.append([
+                    wrap_cell_text(row[0]), 
+                    wrap_cell_text(row[1])
+                ])
+                
+            shader_table = Table(wrapped_shader_summary, colWidths=[2.5*inch, 2.5*inch])
             shader_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
                 ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
                 ('FONTSIZE', (0, 0), (-1, -1), 10),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3352,13 +3462,16 @@ def generate_pdf_report(log_file_path, parsing_data):
                 # Create header row
                 shader_table_data = [["Shader Name", "Pass", "Time (s)"]]
                 
+                # Apply wrapping to header
+                shader_table_data[0] = [wrap_cell_text(cell) for cell in shader_table_data[0]]
+                
                 # Add top shaders
                 for _, row in top_shaders.iterrows():
                     pass_name = row.get('pass_name', 'N/A') if 'pass_name' in row else 'N/A'
                     shader_table_data.append([
-                        row['shader_name'],
-                        pass_name,
-                        f"{row['compilation_seconds']:.2f}s"
+                        wrap_cell_text(row['shader_name']),
+                        wrap_cell_text(pass_name),
+                        wrap_cell_text(f"{row['compilation_seconds']:.2f}s")
                     ])
                 
                 top_shader_table = Table(shader_table_data, colWidths=[2.5*inch, 1.5*inch, 1*inch])
@@ -3366,6 +3479,7 @@ def generate_pdf_report(log_file_path, parsing_data):
                     ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
                     ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
                     ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                     ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
                     ('FONTSIZE', (0, 0), (-1, -1), 10),
                     ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3389,11 +3503,20 @@ def generate_pdf_report(log_file_path, parsing_data):
             ["Total Processing Time", f"{total_time_sec:.2f}s"]
         ]
         
-        il2cpp_table = Table(il2cpp_summary, colWidths=[2.5*inch, 2.5*inch])
+        # Apply text wrapping
+        wrapped_il2cpp_summary = []
+        for row in il2cpp_summary:
+            wrapped_il2cpp_summary.append([
+                wrap_cell_text(row[0]), 
+                wrap_cell_text(row[1])
+            ])
+            
+        il2cpp_table = Table(wrapped_il2cpp_summary, colWidths=[2.5*inch, 2.5*inch])
         il2cpp_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3411,11 +3534,14 @@ def generate_pdf_report(log_file_path, parsing_data):
             # Create header row
             assembly_table_data = [["Assembly", "Time (ms)"]]
             
+            # Apply wrapping to header
+            assembly_table_data[0] = [wrap_cell_text(cell) for cell in assembly_table_data[0]]
+            
             # Add top assemblies
             for entry in sorted_data:
                 assembly_table_data.append([
-                    entry['assembly'],
-                    f"{entry['total_time_ms']}ms"
+                    wrap_cell_text(entry['assembly']),
+                    wrap_cell_text(f"{entry['total_time_ms']}ms")
                 ])
             
             assembly_table = Table(assembly_table_data, colWidths=[4*inch, 1*inch])
@@ -3423,6 +3549,7 @@ def generate_pdf_report(log_file_path, parsing_data):
                 ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
                 ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
                 ('FONTSIZE', (0, 0), (-1, -1), 10),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -3436,6 +3563,7 @@ def generate_pdf_report(log_file_path, parsing_data):
     # Get the PDF from the buffer
     buffer.seek(0)
     return buffer
+
 
 def get_download_link(buffer, filename):
     """Generate a link to download the specified file."""
