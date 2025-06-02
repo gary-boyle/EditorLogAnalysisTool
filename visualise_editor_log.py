@@ -2,10 +2,57 @@ import re
 import pandas as pd
 import os
 import json
+import time 
 from datetime import datetime
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
+
+# Add this function at the top with other imports and utility functions
+def show_big_spinner(message="Processing..."):
+    """Display a large, centered spinner with custom message."""
+    spinner_html = f"""
+    <style>
+    .big-spinner-container {{
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        background-color: rgba(255, 255, 255, 0.8);
+        z-index: 1000;
+    }}
+    .big-spinner-text {{
+        font-size: 24px;
+        font-weight: bold;
+        margin-bottom: 20px;
+        color: #0066cc;
+    }}
+    .big-spinner {{
+        border: 12px solid #f3f3f3;
+        border-top: 12px solid #0066cc;
+        border-radius: 50%;
+        width: 100px;
+        height: 100px;
+        animation: spin 1s linear infinite;
+    }}
+    @keyframes spin {{
+        0% {{ transform: rotate(0deg); }}
+        100% {{ transform: rotate(360deg); }}
+    }}
+    </style>
+    <div class="big-spinner-container">
+        <div class="big-spinner-text">{message}</div>
+        <div class="big-spinner"></div>
+    </div>
+    """
+    spinner_placeholder = st.empty()
+    spinner_placeholder.markdown(spinner_html, unsafe_allow_html=True)
+    return spinner_placeholder
 
 def parse_shader_log(log_file_path):
     with open(log_file_path, 'r') as file:
@@ -1042,7 +1089,24 @@ def visualize_shader_data(shader_df):
                 }
                 fig = px.pie(cpu_data, values='Time', names='Category')
                 st.plotly_chart(fig, use_container_width=True)
-    
+    # List of shaders with local cache hits
+    if 'local_cache_hits' in shader_df.columns:
+        st.subheader("Shaders with Local Cache Hits")
+        shaders_with_cache_hits = shader_df[shader_df['local_cache_hits'] > 0].sort_values('local_cache_hits', ascending=False)
+        
+        if not shaders_with_cache_hits.empty:
+            display_df = shaders_with_cache_hits.copy()
+            display_df['local_cache_hits_formatted'] = display_df['local_cache_hits'].apply(lambda x: f"{x} hits")
+            
+            columns_to_display = ['shader_name']
+            if 'pass_name' in display_df.columns:
+                columns_to_display.append('pass_name')
+            columns_to_display.append('local_cache_hits_formatted')
+            
+            st.dataframe(display_df[columns_to_display])
+        else:
+            st.info("No local cache hits were found for any shaders.")
+            
     # Raw data table with any data we have
     if not shader_df.empty:
         with st.expander("View Shader Compilation Raw Data"):
@@ -2108,6 +2172,15 @@ def extract_unity_version(log_file_path):
     return None
 
 def visualize_log_data(log_file_path):
+    # Start overall timing
+    start_time_overall = time.time()
+    
+    # Create a dictionary to store timing results
+    section_times = {}
+    
+    # Show a big spinner during initial parsing
+    spinner = show_big_spinner("Parsing Unity log file...\n Please hold on.")
+    
     # Extract Unity version first
     unity_version = extract_unity_version(log_file_path)
     
@@ -2117,26 +2190,48 @@ def visualize_log_data(log_file_path):
     if unity_version:
         st.subheader(f"Unity Version: {unity_version}")
     
-    # Parse all types of data
+    # Parse all types of data with timing
+    start_time = time.time()
     shader_df = parse_shader_log(log_file_path)
+    section_times["Parse Shader Log"] = time.time() - start_time
+    
+    start_time = time.time()
     import_df = parse_asset_imports(log_file_path)
+    section_times["Parse Asset Imports"] = time.time() - start_time
+    
+    start_time = time.time()
     loading_df = parse_loading_times(log_file_path)
+    section_times["Parse Loading Times"] = time.time() - start_time
+    
+    start_time = time.time()
     build_df, total_build_size, total_build_unit = parse_build_report(log_file_path)
+    section_times["Parse Build Report"] = time.time() - start_time
+    
+    start_time = time.time()
     refresh_df = parse_asset_pipeline_refresh(log_file_path)
+    section_times["Parse Asset Pipeline Refresh"] = time.time() - start_time
+    
+    start_time = time.time()
     player_build_info = parse_player_build_info(log_file_path)
+    section_times["Parse Player Build Info"] = time.time() - start_time
+    
+    start_time = time.time()
     il2cpp_data = parse_il2cpp_processing(log_file_path)
-
+    section_times["Parse IL2CPP Processing"] = time.time() - start_time
 
     # Parse Tundra build info
+    start_time = time.time()
     tundra_info = parse_tundra_build_info(log_file_path)
+    section_times["Parse Tundra Build Info"] = time.time() - start_time
+    
     has_tundra_info = bool(tundra_info)
 
     # Enhance build info with Tundra data if available
     if has_tundra_info:
         enhance_build_info_with_tundra(player_build_info, tundra_info)
 
-
-    # Check if domain reload data exists (just a quick check to decide if we need a tab)
+    # Check if domain reload data exists
+    start_time = time.time()
     has_domain_reloads = False
     domain_reloads = []
     with open(log_file_path, 'r') as file:
@@ -2145,6 +2240,10 @@ def visualize_log_data(log_file_path):
                 has_domain_reloads = True
                 domain_reloads = parse_domain_reloads(log_file_path)
                 break
+    section_times["Parse Domain Reloads"] = time.time() - start_time
+    
+    # Clear the spinner when parsing is done
+    spinner.empty()
     
     # Check data completeness and show summary
     issues = check_log_data_completeness(log_file_path, shader_df, import_df, loading_df, build_df, refresh_df, player_build_info, unity_version)
@@ -2161,78 +2260,185 @@ def visualize_log_data(log_file_path):
     
     # Create a summary section with timing metrics from all tabs
     st.subheader("📊 Performance Summary 📊")
-    col1, col2, col3 = st.columns(3)
-
-    # Player Build time
-    with col1:
-        total_build_time = None
-        if player_build_info:
-            total_build_time = sum(entry.get('total_duration_sec', 0) for entry in player_build_info)
-        st.metric("Total Build Time", format_time(total_build_time))
-
-    # Project Loading time
-    with col2:
-        total_loading_time = None
-        if not loading_df.empty and 'total_loading_time' in loading_df.columns:
-            total_loading_time = loading_df['total_loading_time'].sum()
-        st.metric("Total Loading Time", format_time(total_loading_time))
-
-    # Domain Reloads time
-    with col3:
-        total_reload_time = None
-        if domain_reloads:
-            total_reload_time = sum((reload.get('reset_time', 0) or 0) for reload in domain_reloads)
-        st.metric("Total Domain Reload Time", format_time(total_reload_time))
-
-    col1, col2, col3 = st.columns(3)
-
-    # Asset Pipeline Refresh time
-    with col1:
-        total_refresh_time = None
-        if not refresh_df.empty and 'total_time' in refresh_df.columns:
-            total_refresh_time = refresh_df['total_time'].sum()
-        st.metric("Total Pipeline Refresh Time", format_time(total_refresh_time))
-
-    # Asset Import time
-    with col2:
-        total_import_time = None
-        if not import_df.empty and 'import_time_seconds' in import_df.columns:
-            total_import_time = import_df['import_time_seconds'].sum()
-        st.metric("Total Asset Import Time", format_time(total_import_time))
-
-    # Shader Compilation time
-    with col3:
-        total_shader_time = None
-        if not shader_df.empty and 'compilation_seconds' in shader_df.columns:
-            total_shader_time = shader_df['compilation_seconds'].sum()
-        st.metric("Total Shader Compilation Time", format_time(total_shader_time))
     
-    # Calculate session duration if timestamps are available
-    all_timestamps = []
-    
-    # Collect timestamps from all dataframes
-    if not shader_df.empty and 'timestamp' in shader_df.columns:
-        all_timestamps.extend(ts for ts in shader_df['timestamp'] if pd.notna(ts))
-    if not import_df.empty and 'timestamp' in import_df.columns:
-        all_timestamps.extend(ts for ts in import_df['timestamp'] if pd.notna(ts))
-    if not loading_df.empty and 'timestamp' in loading_df.columns:
-        all_timestamps.extend(ts for ts in loading_df['timestamp'] if pd.notna(ts))
-    if not refresh_df.empty and 'timestamp' in refresh_df.columns:
-        all_timestamps.extend(ts for ts in refresh_df['timestamp'] if pd.notna(ts))
-    if player_build_info:
-        all_timestamps.extend(entry.get('timestamp') for entry in player_build_info if entry.get('timestamp'))
-    if domain_reloads:
-        all_timestamps.extend(reload.get('timestamp') for reload in domain_reloads if reload.get('timestamp'))
-    
-    # If we have timestamps, calculate and display session duration
-    if all_timestamps:
-        first_timestamp = min(all_timestamps)
-        last_timestamp = max(all_timestamps)
-        session_duration = (last_timestamp - first_timestamp).total_seconds()
-        col1, col2 = st.columns([1, 2])
+    # Create a two-column layout
+    left_col, right_col = st.columns([3, 2])
+
+    # Put all metrics in the left column
+    with left_col:
+        col1, col2, col3 = st.columns(3)
+
+        # Player Build time
         with col1:
-            st.metric("Editor Session Duration", format_time(session_duration))
+            total_build_time = None
+            if player_build_info:
+                total_build_time = sum(entry.get('total_duration_sec', 0) for entry in player_build_info)
+            st.metric("Total Build Time", format_time(total_build_time))
 
+        # Project Loading time
+        with col2:
+            total_loading_time = None
+            if not loading_df.empty and 'total_loading_time' in loading_df.columns:
+                total_loading_time = loading_df['total_loading_time'].sum()
+            st.metric("Total Loading Time", format_time(total_loading_time))
+
+        # Domain Reloads time
+        with col3:
+            total_reload_time = None
+            if domain_reloads:
+                total_reload_time = sum((reload.get('reset_time', 0) or 0) for reload in domain_reloads)
+            st.metric("Total Domain Reload Time", format_time(total_reload_time))
+
+        col1, col2, col3 = st.columns(3)
+
+        # Asset Pipeline Refresh time
+        with col1:
+            total_refresh_time = None
+            if not refresh_df.empty and 'total_time' in refresh_df.columns:
+                total_refresh_time = refresh_df['total_time'].sum()
+            st.metric("Total Pipeline Refresh Time", format_time(total_refresh_time))
+
+        # Asset Import time
+        with col2:
+            total_import_time = None
+            if not import_df.empty and 'import_time_seconds' in import_df.columns:
+                total_import_time = import_df['import_time_seconds'].sum()
+            st.metric("Total Asset Import Time", format_time(total_import_time))
+
+        # Shader Compilation time
+        with col3:
+            total_shader_time = None
+            if not shader_df.empty and 'compilation_seconds' in shader_df.columns:
+                total_shader_time = shader_df['compilation_seconds'].sum()
+            st.metric("Total Shader Compilation Time", format_time(total_shader_time))
+        
+        # Calculate session duration if timestamps are available
+        all_timestamps = []
+        
+        # Collect timestamps from all dataframes
+        if not shader_df.empty and 'timestamp' in shader_df.columns:
+            all_timestamps.extend(ts for ts in shader_df['timestamp'] if pd.notna(ts))
+        if not import_df.empty and 'timestamp' in import_df.columns:
+            all_timestamps.extend(ts for ts in import_df['timestamp'] if pd.notna(ts))
+        if not loading_df.empty and 'timestamp' in loading_df.columns:
+            all_timestamps.extend(ts for ts in loading_df['timestamp'] if pd.notna(ts))
+        if not refresh_df.empty and 'timestamp' in refresh_df.columns:
+            all_timestamps.extend(ts for ts in refresh_df['timestamp'] if pd.notna(ts))
+        if player_build_info:
+            all_timestamps.extend(entry.get('timestamp') for entry in player_build_info if entry.get('timestamp'))
+        if domain_reloads:
+            all_timestamps.extend(reload.get('timestamp') for reload in domain_reloads if reload.get('timestamp'))
+        
+        # If we have timestamps, calculate and display session duration
+        if all_timestamps:
+            first_timestamp = min(all_timestamps)
+            last_timestamp = max(all_timestamps)
+            session_duration = (last_timestamp - first_timestamp).total_seconds()
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                st.metric("Editor Session Duration", format_time(session_duration))
+
+    # Put the pie chart in the right column
+    with right_col:
+        # Create pie chart data
+        time_categories = []
+        time_values = []
+
+        if total_build_time is not None and total_build_time > 0:
+            time_categories.append('Build Time')
+            time_values.append(total_build_time)
+
+        if total_loading_time is not None and total_loading_time > 0:
+            time_categories.append('Loading Time')
+            time_values.append(total_loading_time)
+
+        if total_reload_time is not None and total_reload_time > 0:
+            time_categories.append('Domain Reload Time')
+            time_values.append(total_reload_time)
+
+        if total_refresh_time is not None and total_refresh_time > 0:
+            time_categories.append('Pipeline Refresh Time')
+            time_values.append(total_refresh_time)
+
+        if total_import_time is not None and total_import_time > 0:
+            time_categories.append('Asset Import Time')
+            time_values.append(total_import_time)
+
+        if total_shader_time is not None and total_shader_time > 0:
+            time_categories.append('Shader Compilation Time')
+            time_values.append(total_shader_time)
+
+        if time_categories and time_values:
+            time_data = pd.DataFrame({
+                'Category': time_categories,
+                'Time': time_values
+            })
+            st.subheader("Time Distribution")
+            fig = px.pie(
+                time_data, 
+                values='Time', 
+                names='Category',
+                height=400
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Calculate overall execution time
+    overall_time = time.time() - start_time_overall
+    section_times["Total Processing Time"] = overall_time
+    
+    st.markdown("---")
+    
+    # Create collapsable window for Processing Time Summary
+    with st.expander("🕒 Processing Time Summary", expanded=False):
+        # Create a dataframe for the timing data
+        timing_data = []
+        for section, execution_time in section_times.items():
+            timing_data.append({
+                "Section": section,
+                "Execution Time (s)": round(execution_time, 3),
+                "Percentage": round((execution_time / overall_time) * 100, 1) if section != "Total Processing Time" else 100
+            })
+        
+        timing_df = pd.DataFrame(timing_data)
+        
+        # Split into parsing and visualization sections
+        parsing_df = timing_df[timing_df["Section"].str.startswith("Parse")]
+        visualization_df = timing_df[timing_df["Section"].str.startswith("Visualize")]
+        
+        # Display in columns
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Parsing Times")
+            parsing_fig = px.bar(
+                parsing_df,
+                y="Section",
+                x="Execution Time (s)",
+                text="Execution Time (s)",
+                color="Percentage",
+                orientation="h",
+                height=400
+            )
+            parsing_fig.update_traces(texttemplate="%{text:.3f}s", textposition="outside")
+            st.plotly_chart(parsing_fig, use_container_width=True)
+        
+        with col2:
+            st.subheader("Visualization Times")
+            viz_fig = px.bar(
+                visualization_df,
+                y="Section",
+                x="Execution Time (s)",
+                text="Execution Time (s)",
+                color="Percentage",
+                orientation="h",
+                height=400
+            )
+            viz_fig.update_traces(texttemplate="%{text:.3f}s", textposition="outside")
+            st.plotly_chart(viz_fig, use_container_width=True)
+        
+        # Display the total time as a metric
+        st.metric("Total Log Analysis Time", f"{overall_time:.2f} seconds")
+        
     
     st.markdown("---")
     
@@ -2243,9 +2449,7 @@ def visualize_log_data(log_file_path):
     has_refresh_data = not refresh_df.empty
     has_import_data = not import_df.empty
     has_shader_data = not shader_df.empty and ('compilation_seconds' in shader_df.columns or 'shader_name' in shader_df.columns)
-    # Parse IL2CPP data
     has_il2cpp_data = bool(il2cpp_data)
-
 
     # Create tabs for different visualizations
     tab_titles = []
@@ -2279,42 +2483,77 @@ def visualize_log_data(log_file_path):
     
     if has_build_info:
         with tabs[tab_index]:
+            spinner = show_big_spinner("Visualizing Player Build Info...")
+            start_time = time.time()
             visualize_player_build_info(player_build_info)
+            section_times["Visualize Player Build Info"] = time.time() - start_time
+            spinner.empty()
         tab_index += 1
     
     if has_build_report:
         with tabs[tab_index]:
+            spinner = show_big_spinner("Visualizing Build Report...")
+            start_time = time.time()
             visualize_build_report(build_df, total_build_size, total_build_unit)
+            section_times["Visualize Build Report"] = time.time() - start_time
+            spinner.empty()
         tab_index += 1
         
     if has_loading_data:
         with tabs[tab_index]:
+            spinner = show_big_spinner("Visualizing Loading Times...")
+            start_time = time.time()
             visualize_loading_times(loading_df)
+            section_times["Visualize Loading Times"] = time.time() - start_time
+            spinner.empty()
         tab_index += 1
     
     if has_domain_reloads:
         with tabs[tab_index]:
+            spinner = show_big_spinner("Visualizing Domain Reloads...")
+            start_time = time.time()
             visualize_domain_reloads(log_file_path)
+            section_times["Visualize Domain Reloads"] = time.time() - start_time
+            spinner.empty()
         tab_index += 1
     
     if has_refresh_data:
         with tabs[tab_index]:
+            spinner = show_big_spinner("Visualizing Asset Pipeline Refreshes...")
+            start_time = time.time()
             visualize_pipeline_refreshes(refresh_df, log_file_path)  # Pass log_file_path
+            section_times["Visualize Pipeline Refreshes"] = time.time() - start_time
+            spinner.empty()
         tab_index += 1
     
     if has_import_data:
         with tabs[tab_index]:
+            spinner = show_big_spinner("Visualizing Asset Imports...")
+            start_time = time.time()
             visualize_asset_imports(import_df)
+            section_times["Visualize Asset Imports"] = time.time() - start_time
+            spinner.empty()
         tab_index += 1
     
     if has_shader_data:
         with tabs[tab_index]:
+            spinner = show_big_spinner("Visualizing Shader Compilation...")
+            start_time = time.time()
             visualize_shader_data(shader_df)
+            section_times["Visualize Shader Data"] = time.time() - start_time
+            spinner.empty()
         tab_index += 1
         
     if has_il2cpp_data:
         with tabs[tab_index]:
+            spinner = show_big_spinner("Visualizing IL2CPP Processing...")
+            start_time = time.time()
             visualize_il2cpp_data(il2cpp_data)
+            section_times["Visualize IL2CPP Data"] = time.time() - start_time
+            spinner.empty()
+
+    
+    
 
 if __name__ == "__main__":
     # For testing with sample data
