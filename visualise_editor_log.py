@@ -10,49 +10,66 @@ import plotly.graph_objects as go
 
 # Add this function at the top with other imports and utility functions
 def show_big_spinner(message="Processing..."):
-    """Display a large, centered spinner with custom message."""
-    spinner_html = f"""
-    <style>
-    .big-spinner-container {{
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        background-color: rgba(255, 255, 255, 0.8);
-        z-index: 1000;
-    }}
-    .big-spinner-text {{
-        font-size: 24px;
-        font-weight: bold;
-        margin-bottom: 20px;
-        color: #0066cc;
-    }}
-    .big-spinner {{
-        border: 12px solid #f3f3f3;
-        border-top: 12px solid #0066cc;
-        border-radius: 50%;
-        width: 100px;
-        height: 100px;
-        animation: spin 1s linear infinite;
-    }}
-    @keyframes spin {{
-        0% {{ transform: rotate(0deg); }}
-        100% {{ transform: rotate(360deg); }}
-    }}
-    </style>
-    <div class="big-spinner-container">
-        <div class="big-spinner-text">{message}</div>
-        <div class="big-spinner"></div>
-    </div>
-    """
-    spinner_placeholder = st.empty()
-    spinner_placeholder.markdown(spinner_html, unsafe_allow_html=True)
-    return spinner_placeholder
+    """Display a large, centered spinner with custom message that can be updated."""
+    # Create a container for the spinner
+    spinner_container = st.empty()
+    
+    # Function to update the spinner message
+    def update_spinner(new_message):
+        spinner_html = f"""
+        <style>
+        .big-spinner-container {{
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(255, 255, 255, 0.8);
+            z-index: 1000;
+        }}
+        .big-spinner-text {{
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #0066cc;
+            text-align: center;
+        }}
+        .big-spinner-status {{
+            font-size: 16px;
+            margin-bottom: 20px;
+            color: #666;
+            text-align: center;
+        }}
+        .big-spinner {{
+            border: 12px solid #f3f3f3;
+            border-top: 12px solid #0066cc;
+            border-radius: 50%;
+            width: 100px;
+            height: 100px;
+            animation: spin 1s linear infinite;
+        }}
+        @keyframes spin {{
+            0% {{ transform: rotate(0deg); }}
+            100% {{ transform: rotate(360deg); }}
+        }}
+        </style>
+        <div class="big-spinner-container">
+            <div class="big-spinner-text">Parsing Unity Log File</div>
+            <div class="big-spinner-status">{new_message}</div>
+            <div class="big-spinner"></div>
+        </div>
+        """
+        spinner_container.markdown(spinner_html, unsafe_allow_html=True)
+    
+    # Initial display
+    update_spinner(message)
+    
+    # Return the updater function and the container
+    return update_spinner, spinner_container
 
 def parse_shader_log(log_file_path):
     with open(log_file_path, 'r') as file:
@@ -1980,6 +1997,11 @@ def visualize_domain_reloads(log_file_path):
         format_func=lambda i: f"Reload #{i}: {domain_reloads[i].get('timestamp_str')} ({domain_reloads[i].get('reset_time', 0) or 0:.2f}s)"
     )
     
+    selected_reload_idx = st.selectbox(
+        "Select a domain reload to analyze in detail:",
+        range(len(domain_reloads))
+    )
+    
     if st.button("Analyze Selected Domain Reload"):
         with st.spinner("Analyzing domain reload details..."):
             # Visualize the selected domain reload
@@ -2179,9 +2201,10 @@ def visualize_log_data(log_file_path):
     section_times = {}
     
     # Show a big spinner during initial parsing
-    spinner = show_big_spinner("Parsing Unity log file...\n Please hold on.")
+    update_spinner, spinner_container = show_big_spinner("Initializing...")
     
     # Extract Unity version first
+    update_spinner("Reading Unity version...")
     unity_version = extract_unity_version(log_file_path)
     
     st.title("Unity Build Log Analysis")
@@ -2191,35 +2214,43 @@ def visualize_log_data(log_file_path):
         st.subheader(f"Unity Version: {unity_version}")
     
     # Parse all types of data with timing
+    update_spinner("Parsing shader compilation data...")
     start_time = time.time()
     shader_df = parse_shader_log(log_file_path)
     section_times["Parse Shader Log"] = time.time() - start_time
     
+    update_spinner("Parsing asset import data...")
     start_time = time.time()
     import_df = parse_asset_imports(log_file_path)
     section_times["Parse Asset Imports"] = time.time() - start_time
     
+    update_spinner("Parsing project loading times...")
     start_time = time.time()
     loading_df = parse_loading_times(log_file_path)
     section_times["Parse Loading Times"] = time.time() - start_time
     
+    update_spinner("Parsing build report data...")
     start_time = time.time()
     build_df, total_build_size, total_build_unit = parse_build_report(log_file_path)
     section_times["Parse Build Report"] = time.time() - start_time
     
+    update_spinner("Parsing asset pipeline refresh data...")
     start_time = time.time()
     refresh_df = parse_asset_pipeline_refresh(log_file_path)
     section_times["Parse Asset Pipeline Refresh"] = time.time() - start_time
     
+    update_spinner("Parsing player build information...")
     start_time = time.time()
     player_build_info = parse_player_build_info(log_file_path)
     section_times["Parse Player Build Info"] = time.time() - start_time
     
+    update_spinner("Parsing IL2CPP processing data...")
     start_time = time.time()
     il2cpp_data = parse_il2cpp_processing(log_file_path)
     section_times["Parse IL2CPP Processing"] = time.time() - start_time
 
     # Parse Tundra build info
+    update_spinner("Parsing Tundra build data...")
     start_time = time.time()
     tundra_info = parse_tundra_build_info(log_file_path)
     section_times["Parse Tundra Build Info"] = time.time() - start_time
@@ -2231,20 +2262,28 @@ def visualize_log_data(log_file_path):
         enhance_build_info_with_tundra(player_build_info, tundra_info)
 
     # Check if domain reload data exists
+    update_spinner("Checking for domain reload data...")
     start_time = time.time()
     has_domain_reloads = False
     domain_reloads = []
     with open(log_file_path, 'r') as file:
         for line in file:
             if "Domain Reload Profiling:" in line:
+                update_spinner("Parsing domain reload data...")
                 has_domain_reloads = True
                 domain_reloads = parse_domain_reloads(log_file_path)
                 break
     section_times["Parse Domain Reloads"] = time.time() - start_time
     
-    # Clear the spinner when parsing is done
-    spinner.empty()
+    update_spinner("Preparing visualization...")
     
+    # Clear the spinner when parsing is done
+    spinner_container.empty()
+    
+    overall_time = time.time() - start_time_overall
+    section_times["Total Processing Time"] = overall_time
+
+
     # Check data completeness and show summary
     issues = check_log_data_completeness(log_file_path, shader_df, import_df, loading_df, build_df, refresh_df, player_build_info, unity_version)
     
@@ -2257,7 +2296,59 @@ def visualize_log_data(log_file_path):
     else:
         st.success("✅ All data types were found in the log file. ✅ ")
         st.markdown("---")
-    
+
+    # Create collapsable window for Processing Time Summary
+    with st.expander("🕒 Processing Time Summary", expanded=False):
+        # Create a dataframe for the timing data
+        timing_data = []
+        for section, execution_time in section_times.items():
+            timing_data.append({
+                "Section": section,
+                "Execution Time (s)": round(execution_time, 3),
+                "Percentage": round((execution_time / overall_time) * 100, 1) if section != "Total Processing Time" else 100
+            })
+        
+        timing_df = pd.DataFrame(timing_data)
+        
+        # Split into parsing and visualization sections
+        parsing_df = timing_df[timing_df["Section"].str.startswith("Parse")]
+        visualization_df = timing_df[timing_df["Section"].str.startswith("Visualize")]
+        
+        # Display in columns
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Parsing Times")
+            parsing_fig = px.bar(
+                parsing_df,
+                y="Section",
+                x="Execution Time (s)",
+                text="Execution Time (s)",
+                color="Percentage",
+                orientation="h",
+                height=400
+            )
+            parsing_fig.update_traces(texttemplate="%{text:.3f}s", textposition="outside")
+            st.plotly_chart(parsing_fig, use_container_width=True)
+        
+        with col2:
+            st.subheader("Visualization Times")
+            viz_fig = px.bar(
+                visualization_df,
+                y="Section",
+                x="Execution Time (s)",
+                text="Execution Time (s)",
+                color="Percentage",
+                orientation="h",
+                height=400
+            )
+            viz_fig.update_traces(texttemplate="%{text:.3f}s", textposition="outside")
+            st.plotly_chart(viz_fig, use_container_width=True)
+        
+        # Display the total time as a metric
+        st.metric("Total Log Analysis Time", f"{overall_time:.2f} seconds")
+        
+    st.markdown("---")
     # Create a summary section with timing metrics from all tabs
     st.subheader("📊 Performance Summary 📊")
     
@@ -2388,59 +2479,7 @@ def visualize_log_data(log_file_path):
     
     st.markdown("---")
     
-    # Create collapsable window for Processing Time Summary
-    with st.expander("🕒 Processing Time Summary", expanded=False):
-        # Create a dataframe for the timing data
-        timing_data = []
-        for section, execution_time in section_times.items():
-            timing_data.append({
-                "Section": section,
-                "Execution Time (s)": round(execution_time, 3),
-                "Percentage": round((execution_time / overall_time) * 100, 1) if section != "Total Processing Time" else 100
-            })
-        
-        timing_df = pd.DataFrame(timing_data)
-        
-        # Split into parsing and visualization sections
-        parsing_df = timing_df[timing_df["Section"].str.startswith("Parse")]
-        visualization_df = timing_df[timing_df["Section"].str.startswith("Visualize")]
-        
-        # Display in columns
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Parsing Times")
-            parsing_fig = px.bar(
-                parsing_df,
-                y="Section",
-                x="Execution Time (s)",
-                text="Execution Time (s)",
-                color="Percentage",
-                orientation="h",
-                height=400
-            )
-            parsing_fig.update_traces(texttemplate="%{text:.3f}s", textposition="outside")
-            st.plotly_chart(parsing_fig, use_container_width=True)
-        
-        with col2:
-            st.subheader("Visualization Times")
-            viz_fig = px.bar(
-                visualization_df,
-                y="Section",
-                x="Execution Time (s)",
-                text="Execution Time (s)",
-                color="Percentage",
-                orientation="h",
-                height=400
-            )
-            viz_fig.update_traces(texttemplate="%{text:.3f}s", textposition="outside")
-            st.plotly_chart(viz_fig, use_container_width=True)
-        
-        # Display the total time as a metric
-        st.metric("Total Log Analysis Time", f"{overall_time:.2f} seconds")
-        
     
-    st.markdown("---")
     
     # Check which data types we have available
     has_build_info = bool(player_build_info)
@@ -2480,77 +2519,78 @@ def visualize_log_data(log_file_path):
     
     # Populate tabs based on available data
     tab_index = 0
-    
+
     if has_build_info:
         with tabs[tab_index]:
-            spinner = show_big_spinner("Visualizing Player Build Info...")
+            update_spinner, spinner_container = show_big_spinner("Processing Player Build Information...")
             start_time = time.time()
             visualize_player_build_info(player_build_info)
             section_times["Visualize Player Build Info"] = time.time() - start_time
-            spinner.empty()
+            spinner_container.empty()
         tab_index += 1
-    
+
     if has_build_report:
         with tabs[tab_index]:
-            spinner = show_big_spinner("Visualizing Build Report...")
+            update_spinner, spinner_container = show_big_spinner("Analyzing Build Report...")
             start_time = time.time()
             visualize_build_report(build_df, total_build_size, total_build_unit)
             section_times["Visualize Build Report"] = time.time() - start_time
-            spinner.empty()
+            spinner_container.empty()
         tab_index += 1
         
     if has_loading_data:
         with tabs[tab_index]:
-            spinner = show_big_spinner("Visualizing Loading Times...")
+            update_spinner, spinner_container = show_big_spinner("Analyzing Project Loading Times...")
             start_time = time.time()
             visualize_loading_times(loading_df)
             section_times["Visualize Loading Times"] = time.time() - start_time
-            spinner.empty()
+            spinner_container.empty()
         tab_index += 1
-    
+
     if has_domain_reloads:
         with tabs[tab_index]:
-            spinner = show_big_spinner("Visualizing Domain Reloads...")
+            update_spinner, spinner_container = show_big_spinner("Analyzing Domain Reloads...")
             start_time = time.time()
             visualize_domain_reloads(log_file_path)
             section_times["Visualize Domain Reloads"] = time.time() - start_time
-            spinner.empty()
+            spinner_container.empty()
         tab_index += 1
-    
+
     if has_refresh_data:
         with tabs[tab_index]:
-            spinner = show_big_spinner("Visualizing Asset Pipeline Refreshes...")
+            update_spinner, spinner_container = show_big_spinner("Analyzing Asset Pipeline Refreshes...")
             start_time = time.time()
-            visualize_pipeline_refreshes(refresh_df, log_file_path)  # Pass log_file_path
+            visualize_pipeline_refreshes(refresh_df, log_file_path)
             section_times["Visualize Pipeline Refreshes"] = time.time() - start_time
-            spinner.empty()
+            spinner_container.empty()
         tab_index += 1
-    
+
     if has_import_data:
         with tabs[tab_index]:
-            spinner = show_big_spinner("Visualizing Asset Imports...")
+            update_spinner, spinner_container = show_big_spinner("Analyzing Asset Imports...")
             start_time = time.time()
             visualize_asset_imports(import_df)
             section_times["Visualize Asset Imports"] = time.time() - start_time
-            spinner.empty()
+            spinner_container.empty()
         tab_index += 1
-    
+
     if has_shader_data:
         with tabs[tab_index]:
-            spinner = show_big_spinner("Visualizing Shader Compilation...")
+            update_spinner, spinner_container = show_big_spinner("Analyzing Shader Compilation Data...")
             start_time = time.time()
             visualize_shader_data(shader_df)
             section_times["Visualize Shader Data"] = time.time() - start_time
-            spinner.empty()
+            spinner_container.empty()
         tab_index += 1
         
     if has_il2cpp_data:
         with tabs[tab_index]:
-            spinner = show_big_spinner("Visualizing IL2CPP Processing...")
+            update_spinner, spinner_container = show_big_spinner("Analyzing IL2CPP Processing...")
             start_time = time.time()
             visualize_il2cpp_data(il2cpp_data)
             section_times["Visualize IL2CPP Data"] = time.time() - start_time
-            spinner.empty()
+            spinner_container.empty()
+
 
     
     
