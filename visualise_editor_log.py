@@ -1145,6 +1145,138 @@ def visualize_shader_data(shader_df, shader_issues=None):
     elif 'shader_name' in shader_df.columns:
         st.info("Shader names found but compilation time data is missing.")
     
+    # Show top shaders by variant count after scriptable stripping
+    if 'after_scriptable_stripping' in shader_df.columns and not shader_df['after_scriptable_stripping'].isna().all():
+        st.subheader("Top Shaders with Most Variants After Stripping")
+        
+        # Sort by variants after scriptable stripping
+        variant_sorted_df = shader_df.sort_values('after_scriptable_stripping', ascending=False)
+        top_variants_df = variant_sorted_df.head(10)
+        
+        # Create a bar chart for variant counts
+        fig = px.bar(
+            top_variants_df,
+            x='shader_name',
+            y='after_scriptable_stripping',
+            color='pass_name' if 'pass_name' in top_variants_df.columns else None,
+            labels={
+                'shader_name': 'Shader Name', 
+                'after_scriptable_stripping': 'Remaining Variants After Stripping'
+            },
+            title="Top 10 Shaders by Final Variant Count After Stripping",
+            height=500,
+            text='after_scriptable_stripping'  # Show the exact variant count on bars
+        )
+        
+        # Improve the layout
+        fig.update_layout(
+            xaxis={'categoryorder': 'total descending'},
+            xaxis_tickangle=-45
+        )
+        
+        # Format text on bars
+        fig.update_traces(
+            texttemplate='%{text:,}',  # Format with commas for thousands
+            textposition='outside'
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Also show the data in a table format for more details
+        with st.expander("View Top Shader Variant Details"):
+            display_cols = ['shader_name']
+            if 'pass_name' in top_variants_df.columns:
+                display_cols.append('pass_name')
+            if 'pass_type' in top_variants_df.columns:
+                display_cols.append('pass_type')
+            
+            display_cols.extend(['after_scriptable_stripping'])
+            
+            # Add percentage of total variants column
+            if 'after_scriptable_stripping' in top_variants_df.columns:
+                total_variants = shader_df['after_scriptable_stripping'].sum()
+                top_variants_df['percentage_of_total'] = (
+                    top_variants_df['after_scriptable_stripping'] / total_variants * 100
+                ).round(2)
+                display_cols.append('percentage_of_total')
+                
+            # Add other useful columns for comparison if available
+            if 'full_variants' in top_variants_df.columns:
+                display_cols.append('full_variants')
+                
+                # Calculate total reduction percentage from full to final
+                top_variants_df['total_reduction_pct'] = (
+                    (top_variants_df['full_variants'] - top_variants_df['after_scriptable_stripping']) / 
+                    top_variants_df['full_variants'] * 100
+                ).round(2)
+                display_cols.append('total_reduction_pct')
+            
+            # Add compiled variants if available
+            if 'compiled_variants' in top_variants_df.columns:
+                display_cols.append('compiled_variants')
+            
+            # Format the display table
+            display_df = top_variants_df[display_cols].copy()
+            
+            # Rename columns for display
+            column_map = {
+                'after_scriptable_stripping': 'Final Variants After Stripping',
+                'percentage_of_total': 'Percentage of Total Variants (%)',
+                'full_variants': 'Potential Variants Before Stripping',
+                'total_reduction_pct': 'Total Reduction (%)',
+                'compiled_variants': 'Actually Compiled Variants'
+            }
+            display_df = display_df.rename(columns=column_map)
+            
+            st.dataframe(display_df)
+
+        # Add a stacked bar chart showing the stripping process for these top 10 shaders
+        if all(col in shader_df.columns for col in ['full_variants', 'after_filtering', 'after_builtin_stripping', 'after_scriptable_stripping']):
+            st.subheader("Variant Reduction Pipeline for Top Shaders")
+            
+            # Create a dataframe for the stripping stages
+            stages_df = pd.DataFrame()
+            
+            for _, row in top_variants_df.iterrows():
+                shader_name = row['shader_name']
+                
+                stages_df = pd.concat([stages_df, pd.DataFrame({
+                    'Shader': shader_name,
+                    'Stage': ['Full Variants', 'After Filtering', 'After Built-in Stripping', 'After Scriptable Stripping'],
+                    'Variants': [
+                        row['full_variants'],
+                        row['after_filtering'],
+                        row['after_builtin_stripping'],
+                        row['after_scriptable_stripping']
+                    ]
+                })])
+            
+            # Create the stacked bar chart
+            fig = px.line(
+                stages_df,
+                x='Stage',
+                y='Variants',
+                color='Shader',
+                markers=True,
+                title="Variant Reduction Through Pipeline Stages",
+                height=500
+            )
+            
+            # Add log scale option
+            use_log_scale = st.checkbox("Use logarithmic scale for variants", value=True)
+            if use_log_scale:
+                fig.update_layout(yaxis_type="log")
+                
+                fig.update_layout(
+                    yaxis=dict(
+                        showexponent='all',
+                        exponentformat='e',
+                        dtick=1  # Creates tick marks for each power of 10
+                    )
+                )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
     # NEW: Add compilation time by pass name if available
     if 'pass_name' in shader_df.columns and 'compilation_seconds' in shader_df.columns and not shader_df['pass_name'].isna().all():
         st.subheader("Compilation Time by Pass Name")
@@ -1303,6 +1435,8 @@ def visualize_shader_data(shader_df, shader_issues=None):
     if not shader_df.empty:
         with st.expander("View Shader Compilation Raw Data"):
             st.dataframe(sorted_df)
+
+    
 
 def visualize_asset_imports(import_df):
     st.header("Unity Asset Import Analytics")
@@ -1721,29 +1855,7 @@ def visualize_pipeline_refreshes(refresh_df, log_file_path):
     fig.update_traces(texttemplate='%{text}', textposition='outside')
     st.plotly_chart(fig, use_container_width=True)
     
-    # Distribution of refresh times
-    st.subheader("Distribution of Refresh Times")
-    fig = px.histogram(
-        sorted_df,
-        x='total_time',
-        nbins=30,
-        labels={'total_time': 'Refresh Time (s)'},
-        height=400
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Pie chart showing distribution by initiator
-    st.subheader("Refresh Count by Initiator")
-    initiator_counts = sorted_df['initiator'].value_counts().reset_index()
-    initiator_counts.columns = ['Initiator', 'Count']
-    
-    fig = px.pie(
-        initiator_counts, 
-        values='Count', 
-        names='Initiator',
-        height=500
-    )
-    st.plotly_chart(fig, use_container_width=True)
+
     
     # Raw data table
     with st.expander("View Asset Pipeline Refresh Raw Data"):
@@ -2888,7 +3000,6 @@ def visualize_log_data(log_file_path, parsing_options=None):
             section_times["Visualize IL2CPP Data"] = time.time() - start_time
             spinner_container.empty()
 
-
 def generate_pdf_report(log_file_path, parsing_data):
     """Generate a PDF report with key findings from the log analysis."""
     shader_df = parsing_data.get('shader_df', pd.DataFrame())
@@ -3563,7 +3674,6 @@ def generate_pdf_report(log_file_path, parsing_data):
     # Get the PDF from the buffer
     buffer.seek(0)
     return buffer
-
 
 def get_download_link(buffer, filename):
     """Generate a link to download the specified file."""
