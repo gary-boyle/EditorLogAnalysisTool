@@ -72,6 +72,115 @@ def show_big_spinner(message="Processing..."):
     # Return the updater function and the container
     return update_spinner, spinner_container
 
+def show_progress_checklist(parsing_options):
+    """Display a spinner with a checklist of processing steps."""
+    # Create a container for the spinner and checklist
+    progress_container = st.empty()
+    
+    # Create a list of all processing steps based on enabled options
+    steps = []
+    if parsing_options['shader']:
+        steps.append({"name": "Shader Compilation Data", "status": "⏳", "complete": False})
+    if parsing_options['imports']:
+        steps.append({"name": "Asset Import Data", "status": "⏳", "complete": False})
+    if parsing_options['loading']:
+        steps.append({"name": "Project Loading Times", "status": "⏳", "complete": False})
+    if parsing_options['build_report']:
+        steps.append({"name": "Build Report Data", "status": "⏳", "complete": False})
+    if parsing_options['pipeline']:
+        steps.append({"name": "Asset Pipeline Refresh Data", "status": "⏳", "complete": False})
+    if parsing_options['player_build']:
+        steps.append({"name": "Player Build Information", "status": "⏳", "complete": False})
+    if parsing_options['il2cpp']:
+        steps.append({"name": "IL2CPP Processing Data", "status": "⏳", "complete": False})
+    if parsing_options['tundra']:
+        steps.append({"name": "Tundra Build Information", "status": "⏳", "complete": False})
+    if parsing_options['domain_reload']:
+        steps.append({"name": "Domain Reload Data", "status": "⏳", "complete": False})
+    
+    # Function to update the checklist display
+    def update_progress(current_step=None, message="Processing..."):
+        # Mark the current step as complete if specified
+        if current_step is not None:
+            for step in steps:
+                if step["name"] == current_step and not step["complete"]:
+                    step["status"] = "✅"
+                    step["complete"] = True
+                    break
+        
+        # Create HTML for the spinner and checklist
+        checklist_html = ""
+        for step in steps:
+            checklist_html += f"<div style='margin-bottom: 5px;'>{step['status']} {step['name']}</div>"
+        
+        progress_html = f"""
+        <style>
+        .progress-container {{
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(255, 255, 255, 0.9);
+            z-index: 1000;
+        }}
+        .progress-header {{
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #0066cc;
+        }}
+        .progress-message {{
+            font-size: 16px;
+            margin-bottom: 20px;
+            color: #666;
+        }}
+        .progress-spinner {{
+            border: 12px solid #f3f3f3;
+            border-top: 12px solid #0066cc;
+            border-radius: 50%;
+            width: 80px;
+            height: 80px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }}
+        .progress-checklist {{
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            width: 300px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 14px;
+            text-align: left;
+            margin-bottom: 20px;
+        }}
+        @keyframes spin {{
+            0% {{ transform: rotate(0deg); }}
+            100% {{ transform: rotate(360deg); }}
+        }}
+        </style>
+        <div class="progress-container">
+            <div class="progress-header">Parsing Unity Log File</div>
+            <div class="progress-message">{message}</div>
+            <div class="progress-spinner"></div>
+            <div class="progress-checklist">
+                {checklist_html}
+            </div>
+        </div>
+        """
+        progress_container.markdown(progress_html, unsafe_allow_html=True)
+    
+    # Initial display
+    update_progress(message="Initializing...")
+    
+    return update_progress, progress_container
+
 def parse_shader_log(log_file_path):
     with open(log_file_path, 'r') as file:
         content = file.read()
@@ -2211,77 +2320,81 @@ def visualize_log_data(log_file_path, parsing_options=None):
     # Create a dictionary to store timing results
     section_times = {}
     
-    # Show a big spinner during initial parsing
-    update_spinner, spinner_container = show_big_spinner("Initializing...")
+    # Show progress checklist during initial parsing
+    update_progress, progress_container = show_progress_checklist(parsing_options)
     
     # Extract Unity version first
-    update_spinner("Reading Unity version...")
+    update_progress(message="Reading Unity version...")
     unity_version = extract_unity_version(log_file_path)
     
-    st.title("Unity Build Log Analysis Results")
-    
-    # Display Unity version if available
-    if unity_version:
-        st.subheader(f"Unity Version: {unity_version}")
-    
-    # Parse selected data types with timing
+
+    # Parse selected data types with timing and update progress
     shader_df = pd.DataFrame()
     if parsing_options['shader']:
-        update_spinner("Parsing shader compilation data...")
+        update_progress(message="Parsing shader compilation data...")
         start_time = time.time()
         shader_df = parse_shader_log(log_file_path)
         section_times["Parse Shader Log"] = time.time() - start_time
+        update_progress("Shader Compilation Data", "Shader compilation data parsed")
     
     import_df = pd.DataFrame()
     if parsing_options['imports']:
-        update_spinner("Parsing asset import data...")
+        update_progress(message="Parsing asset import data...")
         start_time = time.time()
         import_df = parse_asset_imports(log_file_path)
         section_times["Parse Asset Imports"] = time.time() - start_time
+        update_progress("Asset Import Data", "Asset import data parsed")
     
+    # Continue with the same pattern for all other parsing steps...
     loading_df = pd.DataFrame()
     if parsing_options['loading']:
-        update_spinner("Parsing project loading times...")
+        update_progress(message="Parsing project loading times...")
         start_time = time.time()
         loading_df = parse_loading_times(log_file_path)
         section_times["Parse Loading Times"] = time.time() - start_time
+        update_progress("Project Loading Times", "Project loading times parsed")
     
     build_df, total_build_size, total_build_unit = pd.DataFrame(), None, None
     if parsing_options['build_report']:
-        update_spinner("Parsing build report data...")
+        update_progress(message="Parsing build report data...")
         start_time = time.time()
         build_df, total_build_size, total_build_unit = parse_build_report(log_file_path)
         section_times["Parse Build Report"] = time.time() - start_time
+        update_progress("Build Report Data", "Build Report Data parsed")
     
     refresh_df = pd.DataFrame()
     if parsing_options['pipeline']:
-        update_spinner("Parsing asset pipeline refresh data...")
+        update_progress(message="Parsing asset pipeline refresh data...")
         start_time = time.time()
         refresh_df = parse_asset_pipeline_refresh(log_file_path)
         section_times["Parse Asset Pipeline Refresh"] = time.time() - start_time
-    
+        update_progress("Asset Pipeline Refresh Data", "Asset Pipeline Refresh Data parsed")
+
     player_build_info = []
     if parsing_options['player_build']:
-        update_spinner("Parsing player build information...")
+        update_progress(message="Parsing player build information...")
         start_time = time.time()
         player_build_info = parse_player_build_info(log_file_path)
         section_times["Parse Player Build Info"] = time.time() - start_time
-    
+        update_progress("Player Build Information", "Player Build Information parsed")
+
     il2cpp_data = []
     if parsing_options['il2cpp']:
-        update_spinner("Parsing IL2CPP processing data...")
+        update_progress(message="Parsing IL2CPP processing data...")
         start_time = time.time()
         il2cpp_data = parse_il2cpp_processing(log_file_path)
         section_times["Parse IL2CPP Processing"] = time.time() - start_time
+        update_progress("IL2CPP Processing Data", "IL2CPP Processing Data parsed")
 
     # Parse Tundra build info
     tundra_info = []
     if parsing_options['tundra']:
-        update_spinner("Parsing Tundra build data...")
+        update_progress(message="Parsing Tundra build data...")
         start_time = time.time()
         tundra_info = parse_tundra_build_info(log_file_path)
         section_times["Parse Tundra Build Info"] = time.time() - start_time
-    
+        update_progress("Tundra Build Information", "Tundra Build Information parsed")
+
     has_tundra_info = bool(tundra_info)
 
     # Enhance build info with Tundra data if available
@@ -2305,13 +2418,14 @@ def visualize_log_data(log_file_path, parsing_options=None):
     
     update_spinner("Preparing visualization...")
     
+    update_progress(message="Preparing visualization...")
+    progress_container.empty()
+
     # Clear the spinner when parsing is done
     spinner_container.empty()
     
     overall_time = time.time() - start_time_overall
     section_times["Total Processing Time"] = overall_time
-
-
 
     # Check data completeness and show summary
     issues = check_log_data_completeness(log_file_path, shader_df, import_df, loading_df, build_df, refresh_df, player_build_info, unity_version)
