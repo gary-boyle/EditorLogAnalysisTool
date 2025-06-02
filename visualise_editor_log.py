@@ -858,6 +858,37 @@ def parse_tundra_build_info(log_file_path):
     
     return tundra_info
 
+def parse_shader_errors_warnings(log_file_path):
+    """Extract shader errors and warnings from the log file."""
+    error_pattern = r"Shader error in '([^']+)': (.*)"
+    warning_pattern = r"Shader warning in '([^']+)': (.*)"
+    
+    shader_issues = {
+        'errors': [],
+        'warnings': []
+    }
+    
+    with open(log_file_path, 'r', errors='ignore') as file:
+        for line in file:
+            # Check for shader errors
+            error_match = re.search(error_pattern, line)
+            if error_match:
+                shader_issues['errors'].append({
+                    'shader_name': error_match.group(1),
+                    'message': error_match.group(2).strip()
+                })
+                continue
+            
+            # Check for shader warnings
+            warning_match = re.search(warning_pattern, line)
+            if warning_match:
+                shader_issues['warnings'].append({
+                    'shader_name': warning_match.group(1),
+                    'message': warning_match.group(2).strip()
+                })
+    
+    return shader_issues
+
 def visualize_il2cpp_data(il2cpp_data):
     
     st.header("IL2CPP Processing Analysis")
@@ -1030,11 +1061,34 @@ def format_time(seconds):
     minutes = seconds / 60
     return f"{seconds:.2f}s ({minutes:.1f} minutes)"
 
-def visualize_shader_data(shader_df):
+def display_shader_issues(shader_issues):
+    """Display shader errors and warnings in an organized way."""
+    st.subheader("Shader Issues")
+    
+    # Display errors
+    if shader_issues.get('errors'):
+        with st.expander(f"⛔ Shader Errors ({len(shader_issues['errors'])})", expanded=len(shader_issues['errors']) > 0):
+            for error in shader_issues['errors']:
+                st.markdown(f"**{error['shader_name']}**: {error['message']}")
+                st.markdown("---")
+    
+    # Display warnings
+    if shader_issues.get('warnings'):
+        with st.expander(f"⚠️ Shader Warnings ({len(shader_issues['warnings'])})", expanded=len(shader_issues['warnings']) > 0):
+            for warning in shader_issues['warnings']:
+                st.markdown(f"**{warning['shader_name']}**: {warning['message']}")
+                st.markdown("---")
+
+def visualize_shader_data(shader_df, shader_issues=None):
     st.header("Unity Shader Compilation Analytics")
     
     if shader_df.empty:
         st.warning("No shader compilation data found in the log.")
+        
+        # Still show errors/warnings if available
+        if shader_issues and (shader_issues.get('errors') or shader_issues.get('warnings')):
+            st.warning("No shader compilation performance data found, but shader issues were detected.")
+            display_shader_issues(shader_issues)
         return
     
     # Check if we have any essential shader compilation data
@@ -1233,7 +1287,10 @@ def visualize_shader_data(shader_df):
             st.dataframe(display_df[columns_to_display])
         else:
             st.info("No local cache hits were found for any shaders.")
-            
+    
+    if shader_issues and (shader_issues.get('errors') or shader_issues.get('warnings')):
+        display_shader_issues(shader_issues)
+           
     # Raw data table with any data we have
     if not shader_df.empty:
         with st.expander("View Shader Compilation Raw Data"):
@@ -2337,6 +2394,17 @@ def visualize_log_data(log_file_path, parsing_options=None):
         section_times["Parse Shader Log"] = time.time() - start_time
         update_progress("Shader Compilation Data", "Shader compilation data parsed")
     
+
+    #shader_df = pd.DataFrame()
+    shader_issues = {}
+    if parsing_options['shader']:
+        update_progress(message="Parsing shader errors and warnings...")
+        start_time = time.time()
+        shader_issues = parse_shader_errors_warnings(log_file_path)
+        section_times["Parse Shader Issues"] = time.time() - start_time
+        update_progress("Shader Issues", "Shader errors and warnings parsed")
+    
+    
     import_df = pd.DataFrame()
     if parsing_options['imports']:
         update_progress(message="Parsing asset import data...")
@@ -2395,27 +2463,32 @@ def visualize_log_data(log_file_path, parsing_options=None):
         section_times["Parse Tundra Build Info"] = time.time() - start_time
         update_progress("Tundra Build Information", "Tundra Build Information parsed")
 
-    has_tundra_info = bool(tundra_info)
 
-    # Enhance build info with Tundra data if available
-    if has_tundra_info and player_build_info:
-        enhance_build_info_with_tundra(player_build_info, tundra_info)
 
     # Check if domain reload data exists
+    # domain_reloads = []
+    # has_domain_reloads = False
+    # if parsing_options['domain_reload']:
+    #     update_progress(message="Checking for domain reload data...")
+    #     start_time = time.time()
+    #     with open(log_file_path, 'r') as file:
+    #         for line in file:
+    #             if "Domain Reload Profiling:" in line:
+    #                 #update_spinner("Parsing domain reload data...")
+    #                 has_domain_reloads = True
+    #                 domain_reloads = parse_domain_reloads(log_file_path)
+    #                 break
+    #     section_times["Parse Domain Reloads"] = time.time() - start_time
+    
     domain_reloads = []
     has_domain_reloads = False
     if parsing_options['domain_reload']:
-        update_progress(message="Checking for domain reload data...")
+        update_progress(message="Parsing domain reload data...")
         start_time = time.time()
-        with open(log_file_path, 'r') as file:
-            for line in file:
-                if "Domain Reload Profiling:" in line:
-                    #update_spinner("Parsing domain reload data...")
-                    has_domain_reloads = True
-                    domain_reloads = parse_domain_reloads(log_file_path)
-                    break
+        domain_reloads = parse_domain_reloads(log_file_path)
         section_times["Parse Domain Reloads"] = time.time() - start_time
-    
+        update_progress("Domain Reload Data", "Domain Reload Data parsed")
+
     # Update progress message before closing the progress container
     update_progress(message="Preparing visualization...")
     progress_container.empty()
@@ -2628,7 +2701,13 @@ def visualize_log_data(log_file_path, parsing_options=None):
     has_import_data = not import_df.empty
     has_shader_data = not shader_df.empty and ('compilation_seconds' in shader_df.columns or 'shader_name' in shader_df.columns)
     has_il2cpp_data = bool(il2cpp_data)
+    has_tundra_info = bool(tundra_info)
+    has_domain_reloads = len(domain_reloads) > 0
 
+    # Enhance build info with Tundra data if available
+    if has_tundra_info and player_build_info:
+        enhance_build_info_with_tundra(player_build_info, tundra_info)
+        
     # Create tabs for different visualizations
     tab_titles = []
     if has_build_info:
@@ -2717,7 +2796,7 @@ def visualize_log_data(log_file_path, parsing_options=None):
         with tabs[tab_index]:
             update_spinner, spinner_container = show_big_spinner("Analyzing Shader Compilation Data...")
             start_time = time.time()
-            visualize_shader_data(shader_df)
+            visualize_shader_data(shader_df, shader_issues)
             section_times["Visualize Shader Data"] = time.time() - start_time
             spinner_container.empty()
         tab_index += 1
