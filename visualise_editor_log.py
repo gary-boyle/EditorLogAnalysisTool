@@ -2235,39 +2235,39 @@ def visualize_domain_reload_details(reload_entry):
         fig.update_layout(yaxis_tickangle=0)
         st.plotly_chart(fig, use_container_width=True)
         
-        # Create a hierarchical visualization using a sunburst chart
-        # First, need to properly structure the data
-        def prepare_sunburst_data(operations, parent_id=""):
-            data = []
-            for i, op in enumerate(operations):
-                op_id = f"{parent_id}/{i}" if parent_id else str(i)
-                data.append({
-                    'id': op_id,
-                    'parent': parent_id,
-                    'name': op['name'],
-                    'value': op['time_ms']
-                })
-                if op.get('children'):
-                    data.extend(prepare_sunburst_data(op['children'], op_id))
-            return data
+        # # Create a hierarchical visualization using a sunburst chart
+        # # First, need to properly structure the data
+        # def prepare_sunburst_data(operations, parent_id=""):
+        #     data = []
+        #     for i, op in enumerate(operations):
+        #         op_id = f"{parent_id}/{i}" if parent_id else str(i)
+        #         data.append({
+        #             'id': op_id,
+        #             'parent': parent_id,
+        #             'name': op['name'],
+        #             'value': op['time_ms']
+        #         })
+        #         if op.get('children'):
+        #             data.extend(prepare_sunburst_data(op['children'], op_id))
+        #     return data
         
-        sunburst_data = prepare_sunburst_data(reload_entry.get('operations', []))
-        if sunburst_data:
-            sunburst_df = pd.DataFrame(sunburst_data)
+        # sunburst_data = prepare_sunburst_data(reload_entry.get('operations', []))
+        # if sunburst_data:
+        #     sunburst_df = pd.DataFrame(sunburst_data)
             
-            st.subheader("Domain Reload Operation Hierarchy")
+        #     st.subheader("Domain Reload Operation Hierarchy")
             
-            fig = px.sunburst(
-                sunburst_df,
-                ids='id',
-                parents='parent',
-                names='name',
-                values='value',
-                color='value',
-                color_continuous_scale='RdBu',
-                height=700
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        #     fig = px.sunburst(
+        #         sunburst_df,
+        #         ids='id',
+        #         parents='parent',
+        #         names='name',
+        #         values='value',
+        #         color='value',
+        #         color_continuous_scale='RdBu',
+        #         height=700
+        #     )
+        #     st.plotly_chart(fig, use_container_width=True)
         
         # # Create a treemap visualization as an alternative
         # st.subheader("Domain Reload Operations Treemap")
@@ -2557,86 +2557,92 @@ def visualize_log_data(log_file_path, parsing_options=None):
 
     
 
-    # Create collapsable window for Processing Time Summary
-    with st.expander("🕒 Processing Time Summary", expanded=False):
-        # Create a dataframe for the timing data
-        timing_data = []
-        for section, execution_time in section_times.items():
-            timing_data.append({
-                "Section": section,
-                "Execution Time (s)": round(execution_time, 3),
-                "Percentage": round((execution_time / overall_time) * 100, 1) if section != "Total Processing Time" else 100
-            })
-        
-        timing_df = pd.DataFrame(timing_data)
-        
-        # Split into parsing and visualization sections
-        parsing_df = timing_df[timing_df["Section"].str.startswith("Parse")]
-        visualization_df = timing_df[timing_df["Section"].str.startswith("Visualize")]
-        
-        # Display in columns
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Parsing Times")
-            parsing_fig = px.bar(
-                parsing_df,
-                y="Section",
-                x="Execution Time (s)",
-                text="Execution Time (s)",
-                color="Percentage",
-                orientation="h",
-                height=400
-            )
-            parsing_fig.update_traces(texttemplate="%{text:.3f}s", textposition="outside")
-            st.plotly_chart(parsing_fig, use_container_width=True)
-        
-        with col2:
-            st.subheader("Visualization Times")
-            viz_fig = px.bar(
-                visualization_df,
-                y="Section",
-                x="Execution Time (s)",
-                text="Execution Time (s)",
-                color="Percentage",
-                orientation="h",
-                height=400
-            )
-            viz_fig.update_traces(texttemplate="%{text:.3f}s", textposition="outside")
-            st.plotly_chart(viz_fig, use_container_width=True)
-        
-        # Display the total time as a metric
-        st.metric("Total Log Analysis Time", f"{overall_time:.2f} seconds")
+    # Create a row with processing time summary and PDF export button side by side
+    col1, col2 = st.columns([3, 1])
 
-    if st.button("Generate PDF Report"):
-        with st.spinner("Generating PDF report..."):
-            # Collect all parsed data
-            parsing_data = {
-                'shader_df': shader_df,
-                'import_df': import_df,
-                'loading_df': loading_df,
-                'build_df': build_df,
-                'refresh_df': refresh_df,
-                'player_build_info': player_build_info,
-                'il2cpp_data': il2cpp_data,
-                'domain_reloads': domain_reloads,
-                'unity_version': unity_version,
-                'total_build_size': total_build_size,
-                'total_build_unit': total_build_unit
-            }
+    # Put the processing time summary expander in the first column
+    with col1:
+        with st.expander("🕒 Processing Time Summary", expanded=False):
+            # Create a dataframe for the timing data
+            timing_data = []
+            for section, execution_time in section_times.items():
+                timing_data.append({
+                    "Section": section,
+                    "Execution Time (s)": round(execution_time, 3),
+                    "Percentage": round((execution_time / overall_time) * 100, 1) if section != "Total Processing Time" else 100
+                })
             
-            # Generate the PDF
-            pdf_buffer = generate_pdf_report(log_file_path, parsing_data)
+            timing_df = pd.DataFrame(timing_data)
             
-            # Get filename with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"unity_log_analysis_{timestamp}.pdf"
+            # Split into parsing and visualization sections
+            parsing_df = timing_df[timing_df["Section"].str.startswith("Parse")]
+            visualization_df = timing_df[timing_df["Section"].str.startswith("Visualize")]
             
-            # Provide download link
-            st.markdown(get_download_link(pdf_buffer, filename), unsafe_allow_html=True)
-            st.success("PDF report generated successfully!")
+            # Display in columns
+            col1a, col2a = st.columns(2)
+            
+            with col1a:
+                st.subheader("Parsing Times")
+                parsing_fig = px.bar(
+                    parsing_df,
+                    y="Section",
+                    x="Execution Time (s)",
+                    text="Execution Time (s)",
+                    color="Percentage",
+                    orientation="h",
+                    height=400
+                )
+                parsing_fig.update_traces(texttemplate="%{text:.3f}s", textposition="outside")
+                st.plotly_chart(parsing_fig, use_container_width=True)
+            
+            with col2a:
+                st.subheader("Visualization Times")
+                viz_fig = px.bar(
+                    visualization_df,
+                    y="Section",
+                    x="Execution Time (s)",
+                    text="Execution Time (s)",
+                    color="Percentage",
+                    orientation="h",
+                    height=400
+                )
+                viz_fig.update_traces(texttemplate="%{text:.3f}s", textposition="outside")
+                st.plotly_chart(viz_fig, use_container_width=True)
+            
+            # Display the total time as a metric
+            st.metric("Total Log Analysis Time", f"{overall_time:.2f} seconds")
 
-    st.markdown("---")
+    # Put the PDF export button in the second column, vertically centered
+    with col2:
+        if st.button("Generate PDF", key="pdf_button"):
+            with st.spinner("Generating PDF report..."):
+                # Collect all parsed data
+                parsing_data = {
+                    'shader_df': shader_df,
+                    'import_df': import_df,
+                    'loading_df': loading_df,
+                    'build_df': build_df,
+                    'refresh_df': refresh_df,
+                    'player_build_info': player_build_info,
+                    'il2cpp_data': il2cpp_data,
+                    'domain_reloads': domain_reloads,
+                    'unity_version': unity_version,
+                    'total_build_size': total_build_size,
+                    'total_build_unit': total_build_unit
+                }
+                
+                # Generate the PDF
+                pdf_buffer = generate_pdf_report(log_file_path, parsing_data)
+                
+                # Get filename with timestamp
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"unity_log_analysis_{timestamp}.pdf"
+                
+                # Provide download link
+                st.markdown(get_download_link(pdf_buffer, filename), unsafe_allow_html=True)
+                st.success("PDF report generated!")
+                
+
     # Create a summary section with timing metrics from all tabs
     st.subheader("📊 Performance Summary 📊")
     
@@ -2764,9 +2770,6 @@ def visualize_log_data(log_file_path, parsing_options=None):
     # Calculate overall execution time
     #overall_time = time.time() - start_time_overall
     section_times["Total Processing Time"] = overall_time
-    
-    st.markdown("---")
-    
     
     
     # Check which data types we have available
