@@ -2405,25 +2405,21 @@ def visualize_log_data(log_file_path, parsing_options=None):
     domain_reloads = []
     has_domain_reloads = False
     if parsing_options['domain_reload']:
-        update_spinner("Checking for domain reload data...")
+        update_progress(message="Checking for domain reload data...")
         start_time = time.time()
         with open(log_file_path, 'r') as file:
             for line in file:
                 if "Domain Reload Profiling:" in line:
-                    update_spinner("Parsing domain reload data...")
+                    #update_spinner("Parsing domain reload data...")
                     has_domain_reloads = True
                     domain_reloads = parse_domain_reloads(log_file_path)
                     break
         section_times["Parse Domain Reloads"] = time.time() - start_time
     
-    update_spinner("Preparing visualization...")
-    
+    # Update progress message before closing the progress container
     update_progress(message="Preparing visualization...")
     progress_container.empty()
 
-    # Clear the spinner when parsing is done
-    spinner_container.empty()
-    
     overall_time = time.time() - start_time_overall
     section_times["Total Processing Time"] = overall_time
 
