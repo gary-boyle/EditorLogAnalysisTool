@@ -8,6 +8,7 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
+
 # Add this function at the top with other imports and utility functions
 def show_big_spinner(message="Processing..."):
     """Display a large, centered spinner with custom message that can be updated."""
@@ -1997,10 +1998,6 @@ def visualize_domain_reloads(log_file_path):
         format_func=lambda i: f"Reload #{i}: {domain_reloads[i].get('timestamp_str')} ({domain_reloads[i].get('reset_time', 0) or 0:.2f}s)"
     )
     
-    selected_reload_idx = st.selectbox(
-        "Select a domain reload to analyze in detail:",
-        range(len(domain_reloads))
-    )
     
     if st.button("Analyze Selected Domain Reload"):
         with st.spinner("Analyzing domain reload details..."):
@@ -2193,7 +2190,21 @@ def extract_unity_version(log_file_path):
     
     return None
 
-def visualize_log_data(log_file_path):
+def visualize_log_data(log_file_path, parsing_options=None):
+    # Use default options (all enabled) if none provided
+    if parsing_options is None:
+        parsing_options = {
+            'shader': True,
+            'imports': True,
+            'loading': True,
+            'build_report': True,
+            'pipeline': True, 
+            'domain_reload': True,
+            'player_build': True,
+            'il2cpp': True,
+            'tundra': True
+        }
+    
     # Start overall timing
     start_time_overall = time.time()
     
@@ -2207,73 +2218,90 @@ def visualize_log_data(log_file_path):
     update_spinner("Reading Unity version...")
     unity_version = extract_unity_version(log_file_path)
     
-    st.title("Unity Build Log Analysis")
+    st.title("Unity Build Log Analysis Results")
     
     # Display Unity version if available
     if unity_version:
         st.subheader(f"Unity Version: {unity_version}")
     
-    # Parse all types of data with timing
-    update_spinner("Parsing shader compilation data...")
-    start_time = time.time()
-    shader_df = parse_shader_log(log_file_path)
-    section_times["Parse Shader Log"] = time.time() - start_time
+    # Parse selected data types with timing
+    shader_df = pd.DataFrame()
+    if parsing_options['shader']:
+        update_spinner("Parsing shader compilation data...")
+        start_time = time.time()
+        shader_df = parse_shader_log(log_file_path)
+        section_times["Parse Shader Log"] = time.time() - start_time
     
-    update_spinner("Parsing asset import data...")
-    start_time = time.time()
-    import_df = parse_asset_imports(log_file_path)
-    section_times["Parse Asset Imports"] = time.time() - start_time
+    import_df = pd.DataFrame()
+    if parsing_options['imports']:
+        update_spinner("Parsing asset import data...")
+        start_time = time.time()
+        import_df = parse_asset_imports(log_file_path)
+        section_times["Parse Asset Imports"] = time.time() - start_time
     
-    update_spinner("Parsing project loading times...")
-    start_time = time.time()
-    loading_df = parse_loading_times(log_file_path)
-    section_times["Parse Loading Times"] = time.time() - start_time
+    loading_df = pd.DataFrame()
+    if parsing_options['loading']:
+        update_spinner("Parsing project loading times...")
+        start_time = time.time()
+        loading_df = parse_loading_times(log_file_path)
+        section_times["Parse Loading Times"] = time.time() - start_time
     
-    update_spinner("Parsing build report data...")
-    start_time = time.time()
-    build_df, total_build_size, total_build_unit = parse_build_report(log_file_path)
-    section_times["Parse Build Report"] = time.time() - start_time
+    build_df, total_build_size, total_build_unit = pd.DataFrame(), None, None
+    if parsing_options['build_report']:
+        update_spinner("Parsing build report data...")
+        start_time = time.time()
+        build_df, total_build_size, total_build_unit = parse_build_report(log_file_path)
+        section_times["Parse Build Report"] = time.time() - start_time
     
-    update_spinner("Parsing asset pipeline refresh data...")
-    start_time = time.time()
-    refresh_df = parse_asset_pipeline_refresh(log_file_path)
-    section_times["Parse Asset Pipeline Refresh"] = time.time() - start_time
+    refresh_df = pd.DataFrame()
+    if parsing_options['pipeline']:
+        update_spinner("Parsing asset pipeline refresh data...")
+        start_time = time.time()
+        refresh_df = parse_asset_pipeline_refresh(log_file_path)
+        section_times["Parse Asset Pipeline Refresh"] = time.time() - start_time
     
-    update_spinner("Parsing player build information...")
-    start_time = time.time()
-    player_build_info = parse_player_build_info(log_file_path)
-    section_times["Parse Player Build Info"] = time.time() - start_time
+    player_build_info = []
+    if parsing_options['player_build']:
+        update_spinner("Parsing player build information...")
+        start_time = time.time()
+        player_build_info = parse_player_build_info(log_file_path)
+        section_times["Parse Player Build Info"] = time.time() - start_time
     
-    update_spinner("Parsing IL2CPP processing data...")
-    start_time = time.time()
-    il2cpp_data = parse_il2cpp_processing(log_file_path)
-    section_times["Parse IL2CPP Processing"] = time.time() - start_time
+    il2cpp_data = []
+    if parsing_options['il2cpp']:
+        update_spinner("Parsing IL2CPP processing data...")
+        start_time = time.time()
+        il2cpp_data = parse_il2cpp_processing(log_file_path)
+        section_times["Parse IL2CPP Processing"] = time.time() - start_time
 
     # Parse Tundra build info
-    update_spinner("Parsing Tundra build data...")
-    start_time = time.time()
-    tundra_info = parse_tundra_build_info(log_file_path)
-    section_times["Parse Tundra Build Info"] = time.time() - start_time
+    tundra_info = []
+    if parsing_options['tundra']:
+        update_spinner("Parsing Tundra build data...")
+        start_time = time.time()
+        tundra_info = parse_tundra_build_info(log_file_path)
+        section_times["Parse Tundra Build Info"] = time.time() - start_time
     
     has_tundra_info = bool(tundra_info)
 
     # Enhance build info with Tundra data if available
-    if has_tundra_info:
+    if has_tundra_info and player_build_info:
         enhance_build_info_with_tundra(player_build_info, tundra_info)
 
     # Check if domain reload data exists
-    update_spinner("Checking for domain reload data...")
-    start_time = time.time()
-    has_domain_reloads = False
     domain_reloads = []
-    with open(log_file_path, 'r') as file:
-        for line in file:
-            if "Domain Reload Profiling:" in line:
-                update_spinner("Parsing domain reload data...")
-                has_domain_reloads = True
-                domain_reloads = parse_domain_reloads(log_file_path)
-                break
-    section_times["Parse Domain Reloads"] = time.time() - start_time
+    has_domain_reloads = False
+    if parsing_options['domain_reload']:
+        update_spinner("Checking for domain reload data...")
+        start_time = time.time()
+        with open(log_file_path, 'r') as file:
+            for line in file:
+                if "Domain Reload Profiling:" in line:
+                    update_spinner("Parsing domain reload data...")
+                    has_domain_reloads = True
+                    domain_reloads = parse_domain_reloads(log_file_path)
+                    break
+        section_times["Parse Domain Reloads"] = time.time() - start_time
     
     update_spinner("Preparing visualization...")
     
@@ -2282,6 +2310,7 @@ def visualize_log_data(log_file_path):
     
     overall_time = time.time() - start_time_overall
     section_times["Total Processing Time"] = overall_time
+
 
 
     # Check data completeness and show summary
@@ -2600,10 +2629,94 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1:
         log_file = sys.argv[1]
+        visualize_log_data(log_file)
     else:
         st.set_page_config(layout="wide", page_title="Unity Build Log Analyzer")
         
-        # File upload with tooltip explaining where to find the log file
+        # Initialize session state for options if not already set
+        if 'parse_options' not in st.session_state:
+            st.session_state.parse_options = {
+                'shader': True,
+                'imports': True,
+                'loading': True,
+                'build_report': True,
+                'pipeline': True, 
+                'domain_reload': True,
+                'player_build': True,
+                'il2cpp': True,
+                'tundra': True
+            }
+            
+        # Title and description
+        st.title("Unity Build Log Analyzer")
+        st.markdown("This tool analyzes Unity Editor log files to provide insights into build performance and other metrics.")
+        
+        # First show parsing options
+        with st.expander("Parsing Options (Customize what to analyze)", expanded=False):
+            st.caption("Select which data to analyze (disable options to speed up processing for large logs)")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.session_state.parse_options['shader'] = st.checkbox(
+                    "Shader Compilation", 
+                    value=st.session_state.parse_options['shader'],
+                    help="Parse shader compilation times and statistics"
+                )
+                
+                st.session_state.parse_options['imports'] = st.checkbox(
+                    "Asset Imports", 
+                    value=st.session_state.parse_options['imports'],
+                    help="Parse asset import timings"
+                )
+                
+                st.session_state.parse_options['loading'] = st.checkbox(
+                    "Project Loading Times", 
+                    value=st.session_state.parse_options['loading'],
+                    help="Parse Unity project loading times"
+                )
+            
+            with col2:
+                st.session_state.parse_options['build_report'] = st.checkbox(
+                    "Build Report", 
+                    value=st.session_state.parse_options['build_report'],
+                    help="Parse build size reports"
+                )
+                
+                st.session_state.parse_options['pipeline'] = st.checkbox(
+                    "Asset Pipeline Refreshes", 
+                    value=st.session_state.parse_options['pipeline'],
+                    help="Parse asset pipeline refresh times"
+                )
+                
+                st.session_state.parse_options['domain_reload'] = st.checkbox(
+                    "Domain Reloads", 
+                    value=st.session_state.parse_options['domain_reload'],
+                    help="Parse domain reload data (can be slow for large logs)"
+                )
+            
+            with col3:
+                st.session_state.parse_options['player_build'] = st.checkbox(
+                    "Player Build Performance", 
+                    value=st.session_state.parse_options['player_build'],
+                    help="Parse detailed player build performance data"
+                )
+                
+                st.session_state.parse_options['il2cpp'] = st.checkbox(
+                    "IL2CPP Processing", 
+                    value=st.session_state.parse_options['il2cpp'],
+                    help="Parse IL2CPP compilation data"
+                )
+                
+                st.session_state.parse_options['tundra'] = st.checkbox(
+                    "Tundra Build Info", 
+                    value=st.session_state.parse_options['tundra'],
+                    help="Parse Tundra build system information"
+                )
+        
+        # Then show file uploader
+        st.markdown("### Upload Log File")
+        
         log_file_help = """
         Upload your Unity Editor.log file. You can find it at:
         
@@ -2618,13 +2731,28 @@ if __name__ == "__main__":
         """
         
         log_file = st.file_uploader("Please Upload your Unity log file (Editor.log)", type=["txt", "log"], help=log_file_help)
-        if not log_file:
-            st.stop()
-    
-    if isinstance(log_file, str):
-        visualize_log_data(log_file)
-    else:
-        # Handle uploaded file
-        with open("temp_log.txt", "wb") as f:
-            f.write(log_file.getvalue())
-        visualize_log_data("temp_log.txt")
+        
+        if log_file:
+            with st.spinner("Analyzing log file..."):
+                # Handle uploaded file
+                with open("temp_log.txt", "wb") as f:
+                    f.write(log_file.getvalue())
+                
+                # Pass the parsing options from session_state
+                visualize_log_data("temp_log.txt", parsing_options=st.session_state.parse_options)
+        else:
+            # Show some instructions when no file is uploaded
+            st.info("👆 Please upload a Unity Editor.log file to begin analysis.")
+            
+            # Add some helpful instructions
+            with st.expander("How to use this tool"):
+                st.markdown("""
+                1. Select which data types you want to analyze using the checkboxes above
+                2. Upload your Unity Editor.log file
+                3. The tool will analyze the log and display visualizations
+                
+                **Tips:**
+                - For large log files, disable data types you don't need to speed up analysis
+                - Domain Reload parsing can be particularly intensive for large logs
+                - Make sure timestamps are enabled in Unity for the most detailed analysis
+                """)
