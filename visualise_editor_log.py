@@ -581,130 +581,149 @@ def parse_asset_pipeline_refresh_details(log_file_path):
     return refresh_details
 
 def parse_domain_reloads(log_file_path):
-    """Extract domain reload information from log file."""
-    # Pattern to match the beginning of a domain reload entry
-    start_pattern = r'(?:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\|.*?\|)?Mono: successfully reloaded assembly'
-    
-    # Pattern to match the domain reload time
-    time_pattern = r'- Finished resetting the current domain, in ([\d.]+) seconds'
-    
-    # Pattern to match domain reload profiling header
-    profiling_pattern = r'Domain Reload Profiling: (\d+)ms'
-    
+    """Extract domain reload information from log file with proper timing extraction."""
     domain_reloads = []
-    counter = 0
     
-    with open(log_file_path, 'r') as file:
+    # Pattern to match domain reload profiling headers
+    profiling_header = r'(?:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\|.*?\|)?Domain Reload Profiling: (\d+)ms'
+    
+    # Additional patterns for domain reload time (as backup)
+    time_patterns = [
+        r'Domain Reload completed in ([\d.]+) seconds',
+        r'Finished resetting the current domain, in ([\d.]+) seconds',
+        r'Reload completed in ([\d.]+)s'
+    ]
+    
+    with open(log_file_path, 'r', errors='ignore') as file:
         content = file.readlines()
         
         i = 0
         while i < len(content):
             line = content[i]
             
-            # Look for the start of a domain reload entry
-            start_match = re.search(start_pattern, line)
-            if start_match:
-                timestamp_str = start_match.group(1) if start_match.group(1) else f"DomainReload_{counter}"
-                counter += 1
+            # Look for profiling header
+            profiling_match = re.search(profiling_header, line)
+            if profiling_match:
+                timestamp_str = profiling_match.group(1) if profiling_match.group(1) else None
+                profiling_time_ms = int(profiling_match.group(2))
+                
+                # Use the profiling time as the reset time (converting from ms to seconds)
+                reset_time = profiling_time_ms / 1000.0
                 
                 # Parse timestamp if available
                 timestamp = None
-                if timestamp_str and not timestamp_str.startswith("DomainReload_"):
+                if timestamp_str:
                     try:
                         timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
                     except:
                         pass
                 
-                # Look for the domain reset time in subsequent lines
-                reset_time = None
-                j = i + 1
-                while j < len(content) and j < i + 10:  # Look ahead max 10 lines
-                    time_match = re.search(time_pattern, content[j])
-                    if time_match:
-                        reset_time = float(time_match.group(1))
-                        break
-                    j += 1
-                
-                # Look for profiling header
-                profiling_time = None
-                profiling_start_line = None
-                k = j + 1
-                while k < len(content) and k < j + 10:  # Look ahead max 10 lines
-                    prof_match = re.search(profiling_pattern, content[k])
-                    if prof_match:
-                        profiling_time = int(prof_match.group(1))
-                        profiling_start_line = k
-                        break
-                    k += 1
-                
-                # Default position to continue from if no profiling data is found
-                next_position = k + 1
-                
-                # If we found profiling data, parse the details
-                operations = []
-                if profiling_start_line is not None:
-                    # Parse the profiling hierarchy
-                    operation_stack = []
-                    
-                    l = profiling_start_line + 1
-                    while l < len(content) and content[l].strip():
-                        line = content[l]
-                        
-                        # Skip lines that don't contain profiling data
-                        if not re.match(r'\t+', line):
-                            break
-                        
-                        # Determine indent level (number of tabs)
-                        indent = len(re.match(r'^\t+', line).group(0))
-                        
-                        # Extract operation name and time
-                        parts = line.strip().split(' ')
-                        if len(parts) >= 2 and parts[-1].endswith('ms)'):
-                            op_name = ' '.join(parts[:-1])
-                            op_time_str = parts[-1].strip('(ms)')
-                            op_time = int(op_time_str) if op_time_str.isdigit() else float(op_time_str)
-                            
-                            # Create operation entry
-                            operation = {
-                                'name': op_name,
-                                'time_ms': op_time,
-                                'indent_level': indent,
-                                'children': []
-                            }
-                            
-                            # Handle the operation hierarchy
-                            while operation_stack and operation_stack[-1]['indent_level'] >= indent:
-                                operation_stack.pop()
-                            
-                            if operation_stack:
-                                operation_stack[-1]['children'].append(operation)
-                            else:
-                                operations.append(operation)
-                                
-                            operation_stack.append(operation)
-                            
-                        l += 1
-                    
-                    # Update position to continue from
-                    next_position = l
-                
-                # Create the domain reload entry
-                domain_reload = {
+                # Initialize domain reload entry
+                reload_entry = {
                     'timestamp': timestamp,
-                    'timestamp_str': timestamp_str,
-                    'reset_time': reset_time,
-                    'profiling_time_ms': profiling_time,
-                    'operations': operations
+                    'timestamp_str': timestamp_str if timestamp_str else f"Reload_{len(domain_reloads)}",
+                    'reset_time': reset_time,  # Use profiling time as default
+                    'profiling_time_ms': profiling_time_ms,
+                    'operations': []
                 }
                 
-                domain_reloads.append(domain_reload)
+                # Look back for more specific domain reload time
+                for j in range(i-1, max(0, i-20), -1):
+                    for pattern in time_patterns:
+                        time_match = re.search(pattern, content[j])
+                        if time_match:
+                            try:
+                                # Override with more specific time if found
+                                reload_entry['reset_time'] = float(time_match.group(1))
+                                break
+                            except:
+                                pass
+                    if time_match:
+                        break
                 
-                # Continue parsing from the next position
-                i = next_position
+                # Parse operations with proper hierarchy
+                operations = []
+                op_stack = []
+                
+                # Move to next line after header
+                j = i + 1
+                while j < len(content) and j < i + 100:  # limit to 100 lines after header
+                    op_line = content[j].rstrip()
+                    
+                    # Check if we've reached the end of the profiling block
+                    if not op_line or not op_line.startswith('\t'):
+                        break
+                    
+                    # Parse the operation line
+                    indent_level = len(re.match(r'^\t+', op_line).group(0))
+                    op_match = re.search(r'^\t+(.+?) \((\d+)ms\)$', op_line)
+                    
+                    if op_match:
+                        name = op_match.group(1)
+                        time_ms = int(op_match.group(2))
+                        
+                        op_entry = {
+                            'name': name,
+                            'time_ms': time_ms,
+                            'indent_level': indent_level,
+                            'children': []
+                        }
+                        
+                        # Handle the hierarchy
+                        while op_stack and op_stack[-1]['indent_level'] >= indent_level:
+                            op_stack.pop()
+                        
+                        if op_stack:
+                            op_stack[-1]['children'].append(op_entry)
+                        else:
+                            operations.append(op_entry)
+                        
+                        op_stack.append(op_entry)
+                    
+                    j += 1
+                
+                # Store operations and add to domain reloads
+                reload_entry['operations'] = operations
+                domain_reloads.append(reload_entry)
+                
+                # Continue parsing from after the operations block
+                i = j
             else:
                 i += 1
+                
+    # If we didn't find any domain reloads with the profiling header,
+    # look for fallback patterns
+    if not domain_reloads:
+        with open(log_file_path, 'r', errors='ignore') as file:
+            content = file.read()
+            
+        # Try each time pattern
+        for pattern in time_patterns:
+            complete_pattern = f'(?:(\\d{{4}}-\\d{{2}}-\\d{{2}}T\\d{{2}}:\\d{{2}}:\\d{{2}}\\.\\d+Z)\\|.*?\\|)?{pattern}'
+            simple_reloads = re.finditer(complete_pattern, content)
+            
+            for idx, match in enumerate(simple_reloads):
+                timestamp_str = match.group(1) if match.group(1) else None
+                reset_time = float(match.group(2))
+                
+                # Parse timestamp if available
+                timestamp = None
+                if timestamp_str:
+                    try:
+                        timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
+                    except:
+                        pass
+                
+                domain_reloads.append({
+                    'timestamp': timestamp,
+                    'timestamp_str': timestamp_str if timestamp_str else f"Reload_{idx}",
+                    'reset_time': reset_time,
+                    'profiling_time_ms': reset_time * 1000,  # Convert seconds to ms
+                    'operations': []
+                })
     
     return domain_reloads
+
 
 def parse_player_build_info(log_file_path):
     # Updated pattern to make timestamp optional
@@ -1276,7 +1295,7 @@ def visualize_shader_data(shader_df, shader_issues=None):
                 )
             
             st.plotly_chart(fig, use_container_width=True)
-            
+
     # NEW: Add compilation time by pass name if available
     if 'pass_name' in shader_df.columns and 'compilation_seconds' in shader_df.columns and not shader_df['pass_name'].isna().all():
         st.subheader("Compilation Time by Pass Name")
@@ -1357,6 +1376,10 @@ def visualize_shader_data(shader_df, shader_issues=None):
         if available_variants:
             # Variant reduction pipeline
             st.subheader("Shader Variant Reduction")
+            
+            # Add log scale toggle
+            use_log_scale_variants = st.checkbox("Use logarithmic scale for variant counts", value=True)
+            
             variant_df = sorted_df.melt(
                 id_vars=['shader_name', 'pass_name'] if 'pass_name' in sorted_df.columns else ['shader_name'],
                 value_vars=available_variants,
@@ -1373,6 +1396,19 @@ def visualize_shader_data(shader_df, shader_issues=None):
                 line_shape='linear',
                 height=500
             )
+            
+            # Apply log scale if selected
+            if use_log_scale_variants:
+                fig.update_layout(yaxis_type="log")
+                
+                fig.update_layout(
+                    yaxis=dict(
+                        showexponent='all',
+                        exponentformat='e',
+                        dtick=1  # Creates tick marks for each power of 10
+                    )
+                )
+                
             st.plotly_chart(fig, use_container_width=True)
     
     # Only show cache analysis if we have the necessary columns
@@ -1949,42 +1985,58 @@ def visualize_refresh_details(refresh_entry):
         
         # Show timeline visualization
         st.subheader("Operation Timeline")
-        
+
         # Create a dataframe for timeline visualization
         timeline_data = []
-        total_time = 0
-        
+        cumulative_time = 0
+
+        # Use a reference start time (now)
+        import datetime
+        reference_time = datetime.datetime.now()
+
         # Assume operations are sequential for visualization purposes
         for op in refresh_entry['operations']:
+            # Convert seconds to datetime objects
+            start_time = reference_time + datetime.timedelta(seconds=cumulative_time)
+            end_time = reference_time + datetime.timedelta(seconds=cumulative_time + op['time_ms']/1000)
+            
             timeline_data.append({
                 'Operation': op['name'],
-                'Start': total_time / 1000,
-                'End': (total_time + op['time_ms']) / 1000,
-                'Duration': op['time_ms'] / 1000,
+                'start_time': start_time,
+                'end_time': end_time,
+                'duration_sec': op['time_ms'] / 1000,
                 'Percentage': (op['time_ms'] / (refresh_entry['total_time'] * 1000)) * 100
             })
-            total_time += op['time_ms']
-        
+            
+            # Update cumulative time for next operation
+            cumulative_time += op['time_ms'] / 1000
+
         timeline_df = pd.DataFrame(timeline_data)
-        
+
         fig = px.timeline(
             timeline_df,
-            x_start='Start',
-            x_end='End',
+            x_start='start_time',
+            x_end='end_time',
             y='Operation',
             color='Percentage',
             labels={
-                'Start': 'Time (s)',
-                'End': 'Time (s)',
                 'Percentage': 'Percentage of Total Time'
             },
             height=600,
             color_continuous_scale='Viridis'
         )
+
+        # Format x-axis to show only the time portion
+        fig.update_xaxes(
+            tickformat="%H:%M:%S",
+            tickangle=0
+        )
+
         fig.update_layout(
-            xaxis_title="Time (seconds)",
+            xaxis_title="Time",
             yaxis_title="Operation"
         )
+
         st.plotly_chart(fig, use_container_width=True)
         
         # Display nested operations for the longest operation
@@ -2240,7 +2292,7 @@ def visualize_domain_reloads(log_file_path):
         return
     
     # Create summary metrics - ensure we handle None values
-    total_time = sum((reload.get('reset_time', 0) or 0) for reload in domain_reloads)
+    total_time = sum(reload.get('reset_time', 0.0) or 0.0 for reload in domain_reloads)
     avg_time = total_time / len(domain_reloads) if domain_reloads else 0
     
     col1, col2, col3 = st.columns(3)
@@ -2293,118 +2345,160 @@ def visualize_domain_reloads(log_file_path):
 def visualize_domain_reload_details(reload_entry):
     st.header("Domain Reload Analysis")
     
+    # Debug information 
+    with st.expander("Debug: Raw Domain Reload Data", expanded=False):
+        st.json(reload_entry)
+    
     # Display summary metrics
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total Domain Reload Time", f"{reload_entry.get('reset_time', 0):.2f}s")
     with col2:
         st.metric("Profiling Time", f"{reload_entry.get('profiling_time_ms', 0) / 1000:.2f}s")
+    with col3:
+        # Display the total time in a more human-readable format
+        total_time = reload_entry.get('reset_time', 0)
+        if total_time > 60:
+            minutes = int(total_time // 60)
+            seconds = total_time % 60
+            st.metric("In Minutes", f"{minutes}m {seconds:.1f}s")
     
-    # Flatten the operations hierarchy for visualization
-    def flatten_operations(operations, parent=""):
-        flat_ops = []
-        for op in operations:
-            full_name = f"{parent}/{op['name']}" if parent else op['name']
-            flat_ops.append({
-                'name': full_name,
-                'time_ms': op['time_ms'],
-                'indent_level': op['indent_level']
-            })
-            flat_ops.extend(flatten_operations(op.get('children', []), full_name))
-        return flat_ops
+    # Check if we have operations data
+    operations = reload_entry.get('operations', [])
     
-    flat_operations = flatten_operations(reload_entry.get('operations', []))
+    if not operations:
+        st.warning("No detailed operations data found for this domain reload.")
+        st.info("""
+            This log may not contain detailed profiling information. To enable detailed domain reload profiling:
+            
+            1. In Unity, open the Editor Log window (Window > General > Console)
+            2. Click on the Console window dropdown menu and select "Open Editor Log"
+            3. In the Developer Console dropdown menu, enable "Development Build" and "Deep Profiling" options
+            4. Trigger a domain reload by making a code change
+            5. Check the log file for detailed profiling information
+        """)
+        return
     
-    # Create a DataFrame for operations
-    if flat_operations:
-        op_df = pd.DataFrame(flat_operations)
+    # Process operations for visualization
+    # Flatten the hierarchy for a table view first
+    flat_ops = []
+    
+    def process_operation(op, depth=0):
+        name = ("  " * depth) + op['name']  # Add indentation to name
+        flat_ops.append({
+            'name': name,
+            'raw_name': op['name'],
+            'time_ms': op['time_ms'],
+            'time_s': op['time_ms'] / 1000,
+            'depth': depth
+        })
         
-        # Add time in seconds
-        op_df['time_s'] = op_df['time_ms'] / 1000
+        for child in op.get('children', []):
+            process_operation(child, depth + 1)
+    
+    # Process all top-level operations
+    for op in operations:
+        process_operation(op)
+    
+    # Create a DataFrame
+    if flat_ops:
+        op_df = pd.DataFrame(flat_ops)
         
-        # Add percentage of total time
-        total_time_ms = reload_entry.get('profiling_time_ms', 0)
-        op_df['percentage'] = op_df['time_ms'] / total_time_ms * 100 if total_time_ms > 0 else 0
+        # Calculate percentage
+        total_ms = reload_entry.get('profiling_time_ms', op_df['time_ms'].sum())
+        if total_ms > 0:
+            op_df['percentage'] = op_df['time_ms'] / total_ms * 100
+        else:
+            op_df['percentage'] = 0
         
-        # Sort by time for the bar chart
-        sorted_op_df = op_df.sort_values('time_ms', ascending=False).head(15)
+        # Sort by time for the top operations view (ignoring hierarchy)
+        top_ops = op_df.sort_values('time_ms', ascending=False).head(15).copy()
         
         # Bar chart of top operations
         st.subheader("Top Operations by Time")
         
-        fig = px.bar(
-            sorted_op_df,
-            y='name',
-            x='time_s',
-            orientation='h',
-            text=sorted_op_df['percentage'].apply(lambda x: f"{x:.1f}%"),
-            labels={'time_s': 'Time (seconds)', 'name': 'Operation'},
-            height=600,
-            color='percentage',
-            color_continuous_scale='Viridis'
+        try:
+            fig = px.bar(
+                top_ops,
+                y='raw_name',
+                x='time_s',
+                orientation='h',
+                text=top_ops['percentage'].apply(lambda x: f"{x:.1f}%"),
+                labels={'time_s': 'Time (seconds)', 'raw_name': 'Operation'},
+                height=600,
+                color='percentage',
+                color_continuous_scale='Viridis'
+            )
+            fig.update_traces(textposition='outside')
+            fig.update_layout(yaxis_tickangle=0)
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.error(f"Error creating visualization: {str(e)}")
+            st.write("Error details:", e)
+        
+        # Show the hierarchical view
+        st.subheader("Hierarchical Operations View")
+        
+        # Display as a formatted table to preserve hierarchy
+        st.dataframe(
+            op_df[['name', 'time_ms', 'percentage']].rename(
+                columns={'name': 'Operation', 'time_ms': 'Time (ms)', 'percentage': '% of Total'}
+            ).style.format({
+                'Time (ms)': '{:.0f}',
+                '% of Total': '{:.1f}%'
+            })
         )
-        fig.update_traces(textposition='outside')
-        fig.update_layout(yaxis_tickangle=0)
-        st.plotly_chart(fig, use_container_width=True)
         
-        # # Create a hierarchical visualization using a sunburst chart
-        # # First, need to properly structure the data
-        # def prepare_sunburst_data(operations, parent_id=""):
-        #     data = []
-        #     for i, op in enumerate(operations):
-        #         op_id = f"{parent_id}/{i}" if parent_id else str(i)
-        #         data.append({
-        #             'id': op_id,
-        #             'parent': parent_id,
-        #             'name': op['name'],
-        #             'value': op['time_ms']
-        #         })
-        #         if op.get('children'):
-        #             data.extend(prepare_sunburst_data(op['children'], op_id))
-        #     return data
+        # Add sunburst chart for hierarchical visualization
+        st.subheader("Operations Hierarchy")
         
-        # sunburst_data = prepare_sunburst_data(reload_entry.get('operations', []))
-        # if sunburst_data:
-        #     sunburst_df = pd.DataFrame(sunburst_data)
+        # Create hierarchical data for sunburst
+        try:
+            # We need to prepare a different structure for the sunburst
+            sunburst_data = []
             
-        #     st.subheader("Domain Reload Operation Hierarchy")
+            def build_path(op, path=""):
+                current_path = path + "/" + op['name'] if path else op['name']
+                sunburst_data.append({
+                    'path': current_path,
+                    'time_ms': op['time_ms'],
+                    'name': op['name']
+                })
+                
+                for child in op.get('children', []):
+                    build_path(child, current_path)
             
-        #     fig = px.sunburst(
-        #         sunburst_df,
-        #         ids='id',
-        #         parents='parent',
-        #         names='name',
-        #         values='value',
-        #         color='value',
-        #         color_continuous_scale='RdBu',
-        #         height=700
-        #     )
-        #     st.plotly_chart(fig, use_container_width=True)
-        
-        # # Create a treemap visualization as an alternative
-        # st.subheader("Domain Reload Operations Treemap")
-        
-        # # Restructure data for treemap - use the flattened path
-        # treemap_df = op_df.copy()
-        # treemap_df['path'] = treemap_df['name'].apply(lambda x: x.split('/'))
-        
-        # fig = px.treemap(
-        #     treemap_df,
-        #     path=['path'],
-        #     values='time_ms',
-        #     color='time_ms',
-        #     color_continuous_scale='Viridis',
-        #     height=600
-        # )
-        # fig.update_traces(textinfo="label+value+percent parent")
-        # st.plotly_chart(fig, use_container_width=True)
-        
-        # Raw data table
-        # with st.expander("View Raw Operation Data"):
-        #     display_df = op_df.copy()
-        #     display_df['time'] = display_df['time_ms'].apply(lambda x: f"{x:.2f}ms")
-        #     display_df['percentage'] = display_df['percentage'].apply(lambda x: f"{x:.2f}%")
-        #     st.dataframe(display_df[['name', 'time', 'percentage']].sort_values('time_ms', ascending=False))
+            # Process all top-level operations
+            for op in operations:
+                build_path(op)
+            
+            if sunburst_data:
+                # Create a DataFrame for the sunburst
+                sb_df = pd.DataFrame(sunburst_data)
+                
+                # Add an ID column
+                sb_df['id'] = sb_df['path']
+                
+                # Add a parent column
+                sb_df['parent'] = sb_df['path'].apply(
+                    lambda p: "/".join(p.split("/")[:-1]) if "/" in p else ""
+                )
+                
+                fig = px.sunburst(
+                    sb_df,
+                    ids='id',
+                    names='name',
+                    parents='parent',
+                    values='time_ms',
+                    color='time_ms',
+                    color_continuous_scale='RdBu',
+                    height=700
+                )
+                st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Could not create hierarchy visualization: {str(e)}")
+    else:
+        st.warning("No valid operations data found for visualization.")
 
 def check_log_data_completeness(log_file_path, shader_df, import_df, loading_df, build_df, refresh_df, player_build_info, unity_version):
     """Check which data elements are present or missing in the log file."""
@@ -3787,18 +3881,40 @@ if __name__ == "__main__":
         **Linux:** ~/.config/unity3d/Editor.log
         """
         
-        log_file = st.file_uploader("Please Upload your Unity log file (Editor.log)", type=["txt", "log"], help=log_file_help)
+        # Track the uploaded file and its modification time
+        current_log_file = st.file_uploader("Please Upload your Unity log file (Editor.log)", 
+                                           type=["txt", "log"], 
+                                           help=log_file_help,
+                                           key="log_file_uploader")
         
-        if log_file:
+        if current_log_file:
+            # Get file details to detect changes
+            file_details = {"filename": current_log_file.name, "size": current_log_file.size}
+            file_identifier = f"{file_details['filename']}_{file_details['size']}"
+            
+            # If the file has changed, clear the cached data
+            if st.session_state.previous_file_name != file_identifier:
+                st.session_state.previous_file_name = file_identifier
+                # Clear the cached parsed data
+                if 'parsed_data' in st.session_state:
+                    del st.session_state.parsed_data
+                st.info("New log file detected. Analyzing...")
+            
             with st.spinner("Analyzing log file..."):
                 # Handle uploaded file
                 with open("temp_log.txt", "wb") as f:
-                    f.write(log_file.getvalue())
+                    f.write(current_log_file.getvalue())
                 
                 # Pass the parsing options from session_state
                 visualize_log_data("temp_log.txt", parsing_options=st.session_state.parse_options)
         else:
-            # Show some instructions when no file is uploaded
+            # Reset the previous file name when no file is uploaded
+            st.session_state.previous_file_name = None
+            # Clear cached data
+            if 'parsed_data' in st.session_state:
+                del st.session_state.parsed_data
+            
+            # Show instructions when no file is uploaded
             st.info("👆 Please upload a Unity Editor.log file to begin analysis.")
             
             # Add some helpful instructions
