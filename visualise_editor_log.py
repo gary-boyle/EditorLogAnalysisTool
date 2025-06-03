@@ -17,6 +17,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 
+
 # Add this function at the top with other imports and utility functions
 def show_big_spinner(message="Processing..."):
     """Display a large, centered spinner with custom message that can be updated."""
@@ -189,9 +190,19 @@ def show_progress_checklist(parsing_options):
     
     return update_progress, progress_container
 
+def read_log_content(log_file):
+    """Read content from either a file path or a file-like object."""
+    if isinstance(log_file, str):
+        # It's a file path
+        with open(log_file, 'r', errors='ignore') as file:
+            return file.read()
+    else:
+        # It's a file-like object (BytesIO)
+        log_file.seek(0)
+        return log_file.read().decode('utf-8', errors='ignore')
+    
 def parse_shader_log(log_file_path):
-    with open(log_file_path, 'r') as file:
-        content = file.read()
+    content = read_log_content(log_file_path)
     
     # Split into individual shader compilation entries
     entries = re.split(r'(?=Compiling shader)', content)
@@ -250,51 +261,60 @@ def parse_shader_log(log_file_path):
     
     return pd.DataFrame(parsed_data) if parsed_data else pd.DataFrame()
 
-def parse_asset_imports(log_file_path):
+def parse_asset_imports(log_file):
+    """Extract asset import data from the log file."""
     # Updated regex pattern to make timestamp optional
     import_pattern = r'(?:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\|.*?\|)?Start importing (.*?) using .* \((.*?)\) -> .* in (\d+\.\d+) seconds'
     
     import_data = []
     
-    with open(log_file_path, 'r') as file:
-        content = file.read()
+    # Handle both file path strings and file-like objects
+    if isinstance(log_file, str):
+        # It's a file path
+        with open(log_file, 'r', errors='ignore') as file:
+            content = file.read()
+    else:
+        # It's a file-like object (BytesIO)
+        log_file.seek(0)
+        content = log_file.read().decode('utf-8', errors='ignore')
+    
+    # Find all import entries
+    matches = re.finditer(import_pattern, content)
+    
+    for match in matches:
+        timestamp_str = match.group(1) if match.lastindex >= 1 and match.group(1) else None
+        # Adjust group indices based on whether timestamp was captured
+        group_offset = 0 if timestamp_str is None else 0
+        asset_path = match.group(2)
+        importer_type = match.group(3)
+        import_time = float(match.group(4))
         
-        # Find all import entries
-        matches = re.finditer(import_pattern, content)
+        # Get file extension
+        _, file_extension = os.path.splitext(asset_path)
+        file_extension = file_extension.lower()
         
-        for match in matches:
-            timestamp_str = match.group(1) if match.lastindex >= 1 and match.group(1) else None
-            # Adjust group indices based on whether timestamp was captured
-            group_offset = 0 if timestamp_str is None else 0
-            asset_path = match.group(2)
-            importer_type = match.group(3)
-            import_time = float(match.group(4))
+        # Try to parse timestamp if available
+        timestamp = None
+        if timestamp_str:
+            try:
+                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
+            except:
+                pass
             
-            # Get file extension
-            _, file_extension = os.path.splitext(asset_path)
-            file_extension = file_extension.lower()
-            
-            # Try to parse timestamp if available
-            timestamp = None
-            if timestamp_str:
-                try:
-                    timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
-                except:
-                    pass
-                
-            import_data.append({
-                'timestamp': timestamp,
-                'timestamp_str': timestamp_str,
-                'asset_path': asset_path,
-                'asset_name': os.path.basename(asset_path),
-                'file_extension': file_extension,
-                'importer_type': importer_type,
-                'import_time_seconds': import_time
-            })
+        import_data.append({
+            'timestamp': timestamp,
+            'timestamp_str': timestamp_str,
+            'asset_path': asset_path,
+            'asset_name': os.path.basename(asset_path),
+            'file_extension': file_extension,
+            'importer_type': importer_type,
+            'import_time_seconds': import_time
+        })
     
     return pd.DataFrame(import_data) if import_data else pd.DataFrame()
 
-def parse_loading_times(log_file_path):
+def parse_loading_times(log_file):
+    """Parse Unity project loading time data from log file."""
     # Updated pattern to make timestamp optional
     loading_pattern = r'(?:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\|.*?\|)?\[Project\] Loading completed in ([\d.]+) seconds'
     
@@ -318,61 +338,70 @@ def parse_loading_times(log_file_path):
     # Find all the loading entries (there might be multiple in a log)
     loading_data = []
     
-    with open(log_file_path, 'r') as file:
-        content = file.read()
+    # Handle both file path strings and file-like objects
+    if isinstance(log_file, str):
+        # It's a file path
+        with open(log_file, 'r', errors='ignore') as file:
+            content = file.read()
+    else:
+        # It's a file-like object (BytesIO)
+        log_file.seek(0)
+        content = log_file.read().decode('utf-8', errors='ignore')
+    
+    # Find all loading entries
+    loading_entries = re.finditer(loading_pattern, content, re.MULTILINE)
+    counter = 0
+    
+    for entry_match in loading_entries:
+        timestamp_str = entry_match.group(1) if entry_match.lastindex >= 2 and entry_match.group(1) else f"Entry_{counter}"
+        group_offset = 0 if timestamp_str.startswith("Entry_") else 0
+        total_loading_time = float(entry_match.group(2))
         
-        # Find all loading entries
-        loading_entries = re.finditer(loading_pattern, content)
-        counter = 0
+        # Extract the block of text for this loading entry
+        entry_start = max(0, entry_match.start() - 100)  # Include some context before
+        entry_end = min(len(content), entry_match.end() + 1000)  # Include sufficient lines after
+        entry_block = content[entry_start:entry_end]
         
-        for entry_match in loading_entries:
-            timestamp_str = entry_match.group(1) if entry_match.lastindex >= 2 and entry_match.group(1) else f"Entry_{counter}"
-            group_offset = 0 if timestamp_str.startswith("Entry_") else 0
-            total_loading_time = float(entry_match.group(2))
-            
-            # Extract the block of text for this loading entry
-            entry_start = max(0, entry_match.start() - 100)  # Include some context before
-            entry_end = min(len(content), entry_match.end() + 1000)  # Include sufficient lines after
-            entry_block = content[entry_start:entry_end]
-            
-            # Extract project init time
-            project_init_match = re.search(project_init_pattern, entry_block)
-            project_init_time = float(project_init_match.group(1)) if project_init_match else None
-            
-            # Extract scene opening time
-            scene_opening_match = re.search(scene_opening_pattern, entry_block)
-            scene_opening_time = float(scene_opening_match.group(1)) if scene_opening_match else None
-            
-            # Extract all sub-component times
-            subcomponent_times = {}
-            for key, pattern in subcomponent_patterns.items():
-                match = re.search(pattern, entry_block)
-                subcomponent_times[key] = float(match.group(1)) if match else None
-            
-            # Try to parse timestamp if it's a real timestamp
-            timestamp = None
-            if not timestamp_str.startswith("Entry_"):
-                try:
-                    timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
-                except:
-                    pass
-            
-            # Compile all data
-            entry_data = {
-                'timestamp': timestamp,
-                'timestamp_str': timestamp_str,
-                'total_loading_time': total_loading_time,
-                'project_init_time': project_init_time,
-                'scene_opening_time': scene_opening_time,
-                **subcomponent_times
-            }
-            
-            loading_data.append(entry_data)
-            counter += 1
+        # Extract project init time
+        project_init_match = re.search(project_init_pattern, entry_block)
+        project_init_time = float(project_init_match.group(1)) if project_init_match else None
+        
+        # Extract scene opening time
+        scene_opening_match = re.search(scene_opening_pattern, entry_block)
+        scene_opening_time = float(scene_opening_match.group(1)) if scene_opening_match else None
+        
+        # Extract all sub-component times
+        subcomponent_times = {}
+        for key, pattern in subcomponent_patterns.items():
+            match = re.search(pattern, entry_block)
+            subcomponent_times[key] = float(match.group(1)) if match else None
+        
+        # Try to parse timestamp if it's a real timestamp
+        timestamp = None
+        if not timestamp_str.startswith("Entry_"):
+            try:
+                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
+            except:
+                pass
+        
+        # Compile all data
+        entry_data = {
+            'timestamp': timestamp,
+            'timestamp_str': timestamp_str,
+            'total_loading_time': total_loading_time,
+            'project_init_time': project_init_time,
+            'scene_opening_time': scene_opening_time,
+            **subcomponent_times
+        }
+        
+        loading_data.append(entry_data)
+        counter += 1
     
     return pd.DataFrame(loading_data) if loading_data else pd.DataFrame()
 
-def parse_build_report(log_file_path):
+
+def parse_build_report(log_file):
+    """Parse Unity build report data from log file."""
     # Updated pattern to make timestamp optional
     build_report_pattern = r'(?:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\|.*?\|)?Build Report'
     
@@ -386,97 +415,114 @@ def parse_build_report(log_file_path):
     total_build_size = None
     total_build_unit = None
     
-    with open(log_file_path, 'r') as file:
-        content = file.read()
+    # Handle both file path strings and file-like objects
+    if isinstance(log_file, str):
+        # It's a file path
+        with open(log_file, 'r', errors='ignore') as file:
+            content = file.read()
+    else:
+        # It's a file-like object (BytesIO)
+        log_file.seek(0)
+        content = log_file.read().decode('utf-8', errors='ignore')
+    
+    # Find the build report section
+    build_report_match = re.search(build_report_pattern, content)
+    if not build_report_match:
+        return pd.DataFrame(), None, None
+    
+    # Extract the portion of the log containing the build report
+    report_start = build_report_match.start()
+    report_end = min(len(content), report_start + 2000)  # Enough lines to capture the report
+    report_content = content[report_start:report_end]
+    
+    # Find all asset category entries
+    category_matches = re.finditer(category_pattern, report_content)
+    
+    for match in category_matches:
+        timestamp_str = match.group(1) if match.lastindex >= 5 and match.group(1) else None
+        group_offset = 0 if timestamp_str is None else 0
+        category = match.group(2).strip()
+        size_value = float(match.group(3))
+        size_unit = match.group(4)
+        percentage = float(match.group(5))
         
-        # Find the build report section
-        build_report_match = re.search(build_report_pattern, content)
-        if not build_report_match:
-            return pd.DataFrame(), None, None
+        # Convert all sizes to MB for consistent comparison
+        size_in_mb = convert_to_mb(size_value, size_unit)
         
-        # Extract the portion of the log containing the build report
-        report_start = build_report_match.start()
-        report_end = min(len(content), report_start + 2000)  # Enough lines to capture the report
-        report_content = content[report_start:report_end]
-        
-        # Find all asset category entries
-        category_matches = re.finditer(category_pattern, report_content)
-        
-        for match in category_matches:
-            timestamp_str = match.group(1) if match.lastindex >= 5 and match.group(1) else None
-            group_offset = 0 if timestamp_str is None else 0
-            category = match.group(2).strip()
-            size_value = float(match.group(3))
-            size_unit = match.group(4)
-            percentage = float(match.group(5))
-            
-            # Convert all sizes to MB for consistent comparison
-            size_in_mb = convert_to_mb(size_value, size_unit)
-            
-            build_data.append({
-                'timestamp_str': timestamp_str if timestamp_str else "N/A",
-                'category': category,
-                'size_value': size_value,
-                'size_unit': size_unit,
-                'size_in_mb': size_in_mb,
-                'percentage': percentage
-            })
-        
-        # Extract total build size
-        total_match = re.search(total_build_pattern, report_content)
-        if total_match:
-            group_count = len(total_match.groups())
-            if group_count >= 3 and total_match.group(1):  # With timestamp
-                total_build_size = float(total_match.group(2))
-                total_build_unit = total_match.group(3)
-            else:  # Without timestamp
-                total_build_size = float(total_match.group(1) if group_count == 2 else total_match.group(2))
-                total_build_unit = total_match.group(2) if group_count == 2 else total_match.group(3)
+        build_data.append({
+            'timestamp_str': timestamp_str if timestamp_str else "N/A",
+            'category': category,
+            'size_value': size_value,
+            'size_unit': size_unit,
+            'size_in_mb': size_in_mb,
+            'percentage': percentage
+        })
+    
+    # Extract total build size
+    total_match = re.search(total_build_pattern, report_content)
+    if total_match:
+        group_count = len(total_match.groups())
+        if group_count >= 3 and total_match.group(1):  # With timestamp
+            total_build_size = float(total_match.group(2))
+            total_build_unit = total_match.group(3)
+        else:  # Without timestamp
+            total_build_size = float(total_match.group(1) if group_count == 2 else total_match.group(2))
+            total_build_unit = total_match.group(2) if group_count == 2 else total_match.group(3)
     
     return pd.DataFrame(build_data) if build_data else pd.DataFrame(), total_build_size, total_build_unit
 
-def parse_asset_pipeline_refresh(log_file_path):
+
+def parse_asset_pipeline_refresh(log_file):
+    """Extract asset pipeline refresh information from log file."""
     # Updated pattern to make timestamp optional
     refresh_pattern = r'(?:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\|.*?\|)?Asset Pipeline Refresh \(id=([^)]+)\): Total: ([\d.]+) seconds - Initiated by (.*?)$'
     
     refresh_data = []
     counter = 0
     
-    with open(log_file_path, 'r') as file:
-        content = file.read()
+    # Handle both file path strings and file-like objects
+    if isinstance(log_file, str):
+        # It's a file path
+        with open(log_file, 'r', errors='ignore') as file:
+            content = file.read()
+    else:
+        # It's a file-like object (BytesIO)
+        log_file.seek(0)
+        content = log_file.read().decode('utf-8', errors='ignore')
+    
+    # Find all refresh entries
+    matches = re.finditer(refresh_pattern, content, re.MULTILINE)
+    
+    for match in matches:
+        has_timestamp = match.lastindex >= 4 and match.group(1)
+        timestamp_str = match.group(1) if has_timestamp else f"Refresh_{counter}"
+        group_offset = 0 if has_timestamp else -1
         
-        # Find all refresh entries
-        matches = re.finditer(refresh_pattern, content, re.MULTILINE)
+        refresh_id = match.group(2)
+        total_time = float(match.group(3))
+        initiator = match.group(4).strip()
         
-        for match in matches:
-            has_timestamp = match.lastindex >= 4 and match.group(1)
-            timestamp_str = match.group(1) if has_timestamp else f"Refresh_{counter}"
-            group_offset = 0 if has_timestamp else -1
+        # Try to parse timestamp if available
+        timestamp = None
+        if has_timestamp:
+            try:
+                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
+            except:
+                pass
             
-            refresh_id = match.group(2)
-            total_time = float(match.group(3))
-            initiator = match.group(4).strip()
-            
-            # Try to parse timestamp if available
-            timestamp = None
-            if has_timestamp:
-                try:
-                    timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
-                except:
-                    pass
-                
-            refresh_data.append({
-                'timestamp': timestamp,
-                'timestamp_str': timestamp_str,
-                'refresh_id': refresh_id,
-                'total_time': total_time,
-                'initiator': initiator
-            })
-            counter += 1
+        refresh_data.append({
+            'timestamp': timestamp,
+            'timestamp_str': timestamp_str,
+            'refresh_id': refresh_id,
+            'total_time': total_time,
+            'initiator': initiator
+        })
+        counter += 1
     
     return pd.DataFrame(refresh_data) if refresh_data else pd.DataFrame()
 
-def parse_asset_pipeline_refresh_details(log_file_path):
+
+def parse_asset_pipeline_refresh_details(log_file):
     """Extract detailed breakdown of asset pipeline refresh operations."""
     # Pattern to match asset pipeline refresh entries with ID and time
     refresh_pattern = r'(?:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\|.*?\|)?Asset Pipeline Refresh \(id=([^)]+)\): Total: ([\d.]+) seconds - Initiated by (.*?)$'
@@ -489,98 +535,106 @@ def parse_asset_pipeline_refresh_details(log_file_path):
     
     refresh_details = []
     
-    with open(log_file_path, 'r') as file:
-        content = file.readlines()
-        
-        for i, line in enumerate(content):
-            match = re.search(refresh_pattern, line)
-            if match:
-                has_timestamp = match.group(1) is not None
-                timestamp_str = match.group(1) if has_timestamp else None
-                refresh_id = match.group(2)
-                total_time = float(match.group(3))
-                initiator = match.group(4).strip()
-                
-                # Try to parse timestamp if available
-                timestamp = None
-                if timestamp_str:
-                    try:
-                        timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
-                    except:
-                        pass
-                
-                # Collect all operations that are part of this refresh
-                operations = []
-                j = i + 1
-                summary_data = {}
-                
-                # Check if there's a summary section
-                if j < len(content) and "Summary:" in content[j]:
+    # Handle both file path strings and file-like objects
+    if isinstance(log_file, str):
+        # It's a file path
+        with open(log_file, 'r', errors='ignore') as file:
+            content = file.readlines()
+    else:
+        # It's a file-like object (BytesIO)
+        log_file.seek(0)
+        content = log_file.read().decode('utf-8', errors='ignore').splitlines()
+    
+    for i, line in enumerate(content):
+        match = re.search(refresh_pattern, line)
+        if match:
+            has_timestamp = match.group(1) is not None
+            timestamp_str = match.group(1) if has_timestamp else None
+            refresh_id = match.group(2)
+            total_time = float(match.group(3))
+            initiator = match.group(4).strip()
+            
+            # Try to parse timestamp if available
+            timestamp = None
+            if timestamp_str:
+                try:
+                    timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
+                except:
+                    pass
+            
+            # Collect all operations that are part of this refresh
+            operations = []
+            j = i + 1
+            summary_data = {}
+            
+            # Check if there's a summary section
+            if j < len(content) and "Summary:" in content[j]:
+                j += 1
+                # Parse summary lines
+                while j < len(content) and content[j].strip() and content[j].startswith('\t\t'):
+                    summary_line = content[j].strip()
+                    if ':' in summary_line:
+                        key, value = summary_line.split(':', 1)
+                        summary_data[key.strip()] = value.strip()
                     j += 1
-                    # Parse summary lines
-                    while j < len(content) and content[j].strip() and content[j].startswith('\t\t'):
-                        summary_line = content[j].strip()
-                        if ':' in summary_line:
-                            key, value = summary_line.split(':', 1)
-                            summary_data[key.strip()] = value.strip()
-                        j += 1
+            
+            # Parse operations
+            while j < len(content) and content[j].strip() and content[j].startswith('\t'):
+                op_line = content[j]
+                op_match = re.search(operation_pattern, op_line)
                 
-                # Parse operations
-                while j < len(content) and content[j].strip() and content[j].startswith('\t'):
-                    op_line = content[j]
-                    op_match = re.search(operation_pattern, op_line)
+                if op_match:
+                    op_name = op_match.group(1)
+                    op_time = float(op_match.group(2))
+                    op_self_time = float(op_match.group(3)) if op_match.group(3) else op_time
                     
-                    if op_match:
-                        op_name = op_match.group(1)
-                        op_time = float(op_match.group(2))
-                        op_self_time = float(op_match.group(3)) if op_match.group(3) else op_time
+                    # Initialize the operation entry
+                    operation = {
+                        'name': op_name,
+                        'time_ms': op_time,
+                        'self_time_ms': op_self_time,
+                        'nested_operations': []
+                    }
+                    
+                    # Look for nested operations (next lines with additional indent)
+                    k = j + 1
+                    while k < len(content) and content[k].strip() and content[k].startswith('\t\t'):
+                        nested_line = content[k]
+                        nested_match = re.search(nested_operation_pattern, nested_line)
                         
-                        # Initialize the operation entry
-                        operation = {
-                            'name': op_name,
-                            'time_ms': op_time,
-                            'self_time_ms': op_self_time,
-                            'nested_operations': []
-                        }
-                        
-                        # Look for nested operations (next lines with additional indent)
-                        k = j + 1
-                        while k < len(content) and content[k].strip() and content[k].startswith('\t\t'):
-                            nested_line = content[k]
-                            nested_match = re.search(nested_operation_pattern, nested_line)
+                        if nested_match:
+                            nested_name = nested_match.group(1)
+                            nested_time = float(nested_match.group(2))
+                            nested_self_time = float(nested_match.group(3)) if nested_match.group(3) else nested_time
                             
-                            if nested_match:
-                                nested_name = nested_match.group(1)
-                                nested_time = float(nested_match.group(2))
-                                nested_self_time = float(nested_match.group(3)) if nested_match.group(3) else nested_time
-                                
-                                operation['nested_operations'].append({
-                                    'name': nested_name,
-                                    'time_ms': nested_time,
-                                    'self_time_ms': nested_self_time
-                                })
-                            
-                            k += 1
+                            operation['nested_operations'].append({
+                                'name': nested_name,
+                                'time_ms': nested_time,
+                                'self_time_ms': nested_self_time
+                            })
                         
-                        operations.append(operation)
-                        j = k
-                    else:
-                        j += 1
-                
-                # Add the detailed refresh entry
-                refresh_details.append({
-                    'timestamp': timestamp,
-                    'timestamp_str': timestamp_str,
-                    'refresh_id': refresh_id,
-                    'total_time': total_time,
-                    'initiator': initiator,
-                    'summary': summary_data,
-                    'operations': operations
-                })
+                        k += 1
+                    
+                    operations.append(operation)
+                    j = k
+                else:
+                    j += 1
+            
+            # Add the detailed refresh entry
+            refresh_details.append({
+                'timestamp': timestamp,
+                'timestamp_str': timestamp_str,
+                'refresh_id': refresh_id,
+                'total_time': total_time,
+                'initiator': initiator,
+                'summary': summary_data,
+                'operations': operations
+            })
     
     return refresh_details
 
-def parse_domain_reloads(log_file_path):
+
+def parse_domain_reloads(log_file):
     """Extract domain reload information from log file with proper timing extraction."""
     domain_reloads = []
     
@@ -594,113 +648,120 @@ def parse_domain_reloads(log_file_path):
         r'Reload completed in ([\d.]+)s'
     ]
     
-    with open(log_file_path, 'r', errors='ignore') as file:
-        content = file.readlines()
+    # Handle both file path strings and file-like objects
+    if isinstance(log_file, str):
+        # It's a file path
+        with open(log_file, 'r', errors='ignore') as file:
+            content = file.readlines()
+    else:
+        # It's a file-like object (BytesIO)
+        log_file.seek(0)
+        content = log_file.read().decode('utf-8', errors='ignore').splitlines()
+    
+    i = 0
+    while i < len(content):
+        line = content[i]
         
-        i = 0
-        while i < len(content):
-            line = content[i]
+        # Look for profiling header
+        profiling_match = re.search(profiling_header, line)
+        if profiling_match:
+            timestamp_str = profiling_match.group(1) if profiling_match.group(1) else None
+            profiling_time_ms = int(profiling_match.group(2))
             
-            # Look for profiling header
-            profiling_match = re.search(profiling_header, line)
-            if profiling_match:
-                timestamp_str = profiling_match.group(1) if profiling_match.group(1) else None
-                profiling_time_ms = int(profiling_match.group(2))
-                
-                # Use the profiling time as the reset time (converting from ms to seconds)
-                reset_time = profiling_time_ms / 1000.0
-                
-                # Parse timestamp if available
-                timestamp = None
-                if timestamp_str:
-                    try:
-                        timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
-                    except:
-                        pass
-                
-                # Initialize domain reload entry
-                reload_entry = {
-                    'timestamp': timestamp,
-                    'timestamp_str': timestamp_str if timestamp_str else f"Reload_{len(domain_reloads)}",
-                    'reset_time': reset_time,  # Use profiling time as default
-                    'profiling_time_ms': profiling_time_ms,
-                    'operations': []
-                }
-                
-                # Look back for more specific domain reload time
-                for j in range(i-1, max(0, i-20), -1):
-                    for pattern in time_patterns:
-                        time_match = re.search(pattern, content[j])
-                        if time_match:
-                            try:
-                                # Override with more specific time if found
-                                reload_entry['reset_time'] = float(time_match.group(1))
-                                break
-                            except:
-                                pass
+            # Use the profiling time as the reset time (converting from ms to seconds)
+            reset_time = profiling_time_ms / 1000.0
+            
+            # Parse timestamp if available
+            timestamp = None
+            if timestamp_str:
+                try:
+                    timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
+                except:
+                    pass
+            
+            # Initialize domain reload entry
+            reload_entry = {
+                'timestamp': timestamp,
+                'timestamp_str': timestamp_str if timestamp_str else f"Reload_{len(domain_reloads)}",
+                'reset_time': reset_time,  # Use profiling time as default
+                'profiling_time_ms': profiling_time_ms,
+                'operations': []
+            }
+            
+            # Look back for more specific domain reload time
+            for j in range(i-1, max(0, i-20), -1):
+                for pattern in time_patterns:
+                    time_match = re.search(pattern, content[j])
                     if time_match:
-                        break
+                        try:
+                            # Override with more specific time if found
+                            reload_entry['reset_time'] = float(time_match.group(1))
+                            break
+                        except:
+                            pass
+                if time_match:
+                    break
+            
+            # Parse operations with proper hierarchy
+            operations = []
+            op_stack = []
+            
+            # Move to next line after header
+            j = i + 1
+            while j < len(content) and j < i + 100:  # limit to 100 lines after header
+                op_line = content[j].rstrip()
                 
-                # Parse operations with proper hierarchy
-                operations = []
-                op_stack = []
+                # Check if we've reached the end of the profiling block
+                if not op_line or not op_line.startswith('\t'):
+                    break
                 
-                # Move to next line after header
-                j = i + 1
-                while j < len(content) and j < i + 100:  # limit to 100 lines after header
-                    op_line = content[j].rstrip()
-                    
-                    # Check if we've reached the end of the profiling block
-                    if not op_line or not op_line.startswith('\t'):
-                        break
-                    
-                    # Parse the operation line
-                    indent_level = len(re.match(r'^\t+', op_line).group(0))
-                    op_match = re.search(r'^\t+(.+?) \((\d+)ms\)$', op_line)
-                    
-                    if op_match:
-                        name = op_match.group(1)
-                        time_ms = int(op_match.group(2))
-                        
-                        op_entry = {
-                            'name': name,
-                            'time_ms': time_ms,
-                            'indent_level': indent_level,
-                            'children': []
-                        }
-                        
-                        # Handle the hierarchy
-                        while op_stack and op_stack[-1]['indent_level'] >= indent_level:
-                            op_stack.pop()
-                        
-                        if op_stack:
-                            op_stack[-1]['children'].append(op_entry)
-                        else:
-                            operations.append(op_entry)
-                        
-                        op_stack.append(op_entry)
-                    
-                    j += 1
+                # Parse the operation line
+                indent_level = len(re.match(r'^\t+', op_line).group(0))
+                op_match = re.search(r'^\t+(.+?) \((\d+)ms\)$', op_line)
                 
-                # Store operations and add to domain reloads
-                reload_entry['operations'] = operations
-                domain_reloads.append(reload_entry)
+                if op_match:
+                    name = op_match.group(1)
+                    time_ms = int(op_match.group(2))
+                    
+                    op_entry = {
+                        'name': name,
+                        'time_ms': time_ms,
+                        'indent_level': indent_level,
+                        'children': []
+                    }
+                    
+                    # Handle the hierarchy
+                    while op_stack and op_stack[-1]['indent_level'] >= indent_level:
+                        op_stack.pop()
+                    
+                    if op_stack:
+                        op_stack[-1]['children'].append(op_entry)
+                    else:
+                        operations.append(op_entry)
+                    
+                    op_stack.append(op_entry)
                 
-                # Continue parsing from after the operations block
-                i = j
-            else:
-                i += 1
+                j += 1
+            
+            # Store operations and add to domain reloads
+            reload_entry['operations'] = operations
+            domain_reloads.append(reload_entry)
+            
+            # Continue parsing from after the operations block
+            i = j
+        else:
+            i += 1
                 
     # If we didn't find any domain reloads with the profiling header,
     # look for fallback patterns
     if not domain_reloads:
-        with open(log_file_path, 'r', errors='ignore') as file:
-            content = file.read()
-            
+        # Join the content for simpler pattern matching
+        full_content = '\n'.join(content)
+        
         # Try each time pattern
         for pattern in time_patterns:
             complete_pattern = f'(?:(\\d{{4}}-\\d{{2}}-\\d{{2}}T\\d{{2}}:\\d{{2}}:\\d{{2}}\\.\\d+Z)\\|.*?\\|)?{pattern}'
-            simple_reloads = re.finditer(complete_pattern, content)
+            simple_reloads = re.finditer(complete_pattern, full_content)
             
             for idx, match in enumerate(simple_reloads):
                 timestamp_str = match.group(1) if match.group(1) else None
@@ -725,67 +786,77 @@ def parse_domain_reloads(log_file_path):
     return domain_reloads
 
 
-def parse_player_build_info(log_file_path):
+
+def parse_player_build_info(log_file):
+    """Extract player build information from log file."""
     # Updated pattern to make timestamp optional
     build_info_pattern = r'(?:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\|.*?\|)?##utp:(.*?)$'
     
     build_info_entries = []
     counter = 0
     
-    with open(log_file_path, 'r') as file:
-        content = file.read()
+    # Handle both file path strings and file-like objects
+    if isinstance(log_file, str):
+        # It's a file path
+        with open(log_file, 'r', errors='ignore') as file:
+            content = file.read()
+    else:
+        # It's a file-like object (BytesIO)
+        log_file.seek(0)
+        content = log_file.read().decode('utf-8', errors='ignore')
+    
+    # Find all player build info entries
+    matches = re.finditer(build_info_pattern, content, re.MULTILINE)
+    
+    for match in matches:
+        # Always extract timestamp from group 1 (which may be None if timestamp is missing)
+        timestamp_str = match.group(1) if match.group(1) else f"Build_{counter}"
         
-        # Find all player build info entries
-        matches = re.finditer(build_info_pattern, content, re.MULTILINE)
+        # Always extract JSON data from the last group
+        json_data = match.group(match.lastindex)  # This ensures we get the JSON data from the correct group
         
-        for match in matches:
-            # Always extract timestamp from group 1 (which may be None if timestamp is missing)
-            timestamp_str = match.group(1) if match.group(1) else f"Build_{counter}"
+        if not json_data:
+            # Skip if no JSON data was found
+            continue
             
-            # Always extract JSON data from the last group
-            json_data = match.group(match.lastindex)  # This ensures we get the JSON data from the correct group
+        # Try to parse the JSON data
+        try:
+            build_data = json.loads(json_data)
             
-            if not json_data:
-                # Skip if no JSON data was found
-                continue
+            # Check if this is a PlayerBuildInfo entry
+            if build_data.get("type") == "PlayerBuildInfo":
+                # Get the build steps
+                steps = build_data.get("steps", [])
+                total_duration = build_data.get("duration", 0)
                 
-            # Try to parse the JSON data
-            try:
-                build_data = json.loads(json_data)
+                # Try to parse timestamp if available
+                timestamp = None
+                if match.group(1):  # Only try to parse if we have a real timestamp
+                    try:
+                        timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
+                    except:
+                        pass
                 
-                # Check if this is a PlayerBuildInfo entry
-                if build_data.get("type") == "PlayerBuildInfo":
-                    # Get the build steps
-                    steps = build_data.get("steps", [])
-                    total_duration = build_data.get("duration", 0)
-                    
-                    # Try to parse timestamp if available
-                    timestamp = None
-                    if match.group(1):  # Only try to parse if we have a real timestamp
-                        try:
-                            timestamp = datetime.strptime(timestamp_str, '%Y-%m-%dT%H:%M:%S.%fZ')
-                        except:
-                            pass
-                    
-                    # Add the build info entry
-                    build_info_entries.append({
-                        'timestamp': timestamp,
-                        'timestamp_str': timestamp_str,
-                        'phase': build_data.get("phase", "Unknown"),
-                        'version': build_data.get("version", "Unknown"),
-                        'process_id': build_data.get("processId", "Unknown"),
-                        'total_duration_ms': total_duration,
-                        'total_duration_sec': total_duration / 1000,
-                        'steps': steps
-                    })
-                    counter += 1
-            except json.JSONDecodeError:
-                # Skip invalid JSON
-                continue
+                # Add the build info entry
+                build_info_entries.append({
+                    'timestamp': timestamp,
+                    'timestamp_str': timestamp_str,
+                    'phase': build_data.get("phase", "Unknown"),
+                    'version': build_data.get("version", "Unknown"),
+                    'process_id': build_data.get("processId", "Unknown"),
+                    'total_duration_ms': total_duration,
+                    'total_duration_sec': total_duration / 1000,
+                    'steps': steps
+                })
+                counter += 1
+        except json.JSONDecodeError:
+            # Skip invalid JSON
+            continue
     
     return build_info_entries
 
-def parse_il2cpp_processing(log_file_path):
+
+def parse_il2cpp_processing(log_file):
     """Extract IL2CPP processing data from the log file."""
     # Patterns for IL2CPP entries
     patterns = [
@@ -811,49 +882,58 @@ def parse_il2cpp_processing(log_file_path):
     current_assembly = None
     assembly_steps = []
     
-    with open(log_file_path, 'r', errors='ignore') as file:
-        for line in file:
-            # Try to match each pattern
-            for pattern, handler in patterns:
-                match = re.search(pattern, line)
-                if match:
-                    result = handler(match)
-                    
-                    # Handle subprocess entries
-                    if result.get('is_subprocess', False):
-                        if current_assembly and current_assembly['assembly'] == result['assembly']:
-                            assembly_steps.append({
-                                'assembly': result['assembly'],
-                                'process': result['process'],
-                                'time_ms': result['time_ms']
-                            })
-                        break
-                    
-                    # Handle main entries (save previous if exists)
-                    if current_assembly:
-                        il2cpp_data.append({
-                            'assembly': current_assembly['assembly'],
-                            'total_time_ms': current_assembly['total_time_ms'],
-                            'self_time_ms': current_assembly.get('self_time_ms', current_assembly['total_time_ms']),
-                            'steps': assembly_steps
-                        })
-                    
-                    # If this is an ILPostProcess entry, add it directly
-                    if result.get('process') == 'ILPostProcess':
-                        il2cpp_data.append({
+    # Handle both file path strings and file-like objects
+    if isinstance(log_file, str):
+        # It's a file path
+        with open(log_file, 'r', errors='ignore') as file:
+            lines = file.readlines()
+    else:
+        # It's a file-like object (BytesIO)
+        log_file.seek(0)
+        lines = log_file.read().decode('utf-8', errors='ignore').splitlines()
+    
+    for line in lines:
+        # Try to match each pattern
+        for pattern, handler in patterns:
+            match = re.search(pattern, line)
+            if match:
+                result = handler(match)
+                
+                # Handle subprocess entries
+                if result.get('is_subprocess', False):
+                    if current_assembly and current_assembly['assembly'] == result['assembly']:
+                        assembly_steps.append({
                             'assembly': result['assembly'],
-                            'total_time_ms': result['total_time_ms'],
-                            'self_time_ms': result['self_time_ms'],
-                            'process': 'ILPostProcess',
-                            'steps': []
+                            'process': result['process'],
+                            'time_ms': result['time_ms']
                         })
-                        current_assembly = None
-                        assembly_steps = []
-                    else:
-                        # Start a new assembly
-                        current_assembly = result
-                        assembly_steps = []
                     break
+                
+                # Handle main entries (save previous if exists)
+                if current_assembly:
+                    il2cpp_data.append({
+                        'assembly': current_assembly['assembly'],
+                        'total_time_ms': current_assembly['total_time_ms'],
+                        'self_time_ms': current_assembly.get('self_time_ms', current_assembly['total_time_ms']),
+                        'steps': assembly_steps
+                    })
+                
+                # If this is an ILPostProcess entry, add it directly
+                if result.get('process') == 'ILPostProcess':
+                    il2cpp_data.append({
+                        'assembly': result['assembly'],
+                        'total_time_ms': result['total_time_ms'],
+                        'self_time_ms': result['self_time_ms'],
+                        'process': 'ILPostProcess',
+                        'steps': []
+                    })
+                    current_assembly = None
+                    assembly_steps = []
+                else:
+                    # Start a new assembly
+                    current_assembly = result
+                    assembly_steps = []
+                break
     
     # Add the last assembly if exists
     if current_assembly:
@@ -866,26 +946,35 @@ def parse_il2cpp_processing(log_file_path):
     
     return il2cpp_data
 
-def parse_tundra_build_info(log_file_path):
+def parse_tundra_build_info(log_file):
     """Extract Tundra build information from the log file."""
     tundra_pattern = r'\*\*\* Tundra build success \((\d+\.\d+) seconds - (\d+:\d+:\d+)\), (\d+) items updated, (\d+) evaluated'
     
     tundra_info = []
     
-    with open(log_file_path, 'r') as file:
-        for line in file:
-            match = re.search(tundra_pattern, line)
-            if match:
-                tundra_info.append({
-                    'build_time_seconds': float(match.group(1)),
-                    'build_time_formatted': match.group(2),
-                    'items_updated': int(match.group(3)),
-                    'items_evaluated': int(match.group(4))
-                })
+    # Handle both file path strings and file-like objects
+    if isinstance(log_file, str):
+        # It's a file path
+        with open(log_file, 'r', errors='ignore') as file:
+            lines = file.readlines()
+    else:
+        # It's a file-like object (BytesIO)
+        log_file.seek(0)
+        lines = log_file.read().decode('utf-8', errors='ignore').splitlines()
+    
+    for line in lines:
+        match = re.search(tundra_pattern, line)
+        if match:
+            tundra_info.append({
+                'build_time_seconds': float(match.group(1)),
+                'build_time_formatted': match.group(2),
+                'items_updated': int(match.group(3)),
+                'items_evaluated': int(match.group(4))
+            })
     
     return tundra_info
 
-def parse_shader_errors_warnings(log_file_path):
+def parse_shader_errors_warnings(log_file):
     """Extract shader errors and warnings from the log file."""
     error_pattern = r"Shader error in '([^']+)': (.*)"
     warning_pattern = r"Shader warning in '([^']+)': (.*)"
@@ -895,24 +984,33 @@ def parse_shader_errors_warnings(log_file_path):
         'warnings': []
     }
     
-    with open(log_file_path, 'r', errors='ignore') as file:
-        for line in file:
-            # Check for shader errors
-            error_match = re.search(error_pattern, line)
-            if error_match:
-                shader_issues['errors'].append({
-                    'shader_name': error_match.group(1),
-                    'message': error_match.group(2).strip()
-                })
-                continue
-            
-            # Check for shader warnings
-            warning_match = re.search(warning_pattern, line)
-            if warning_match:
-                shader_issues['warnings'].append({
-                    'shader_name': warning_match.group(1),
-                    'message': warning_match.group(2).strip()
-                })
+    # Handle both file path strings and file-like objects
+    if isinstance(log_file, str):
+        # It's a file path
+        with open(log_file, 'r', errors='ignore') as file:
+            lines = file.readlines()
+    else:
+        # It's a file-like object (BytesIO)
+        log_file.seek(0)
+        lines = log_file.read().decode('utf-8', errors='ignore').splitlines()
+    
+    for line in lines:
+        # Check for shader errors
+        error_match = re.search(error_pattern, line)
+        if error_match:
+            shader_issues['errors'].append({
+                'shader_name': error_match.group(1),
+                'message': error_match.group(2).strip()
+            })
+            continue
+        
+        # Check for shader warnings
+        warning_match = re.search(warning_pattern, line)
+        if warning_match:
+            shader_issues['warnings'].append({
+                'shader_name': warning_match.group(1),
+                'message': warning_match.group(2).strip()
+            })
     
     return shader_issues
 
@@ -2292,7 +2390,7 @@ def visualize_domain_reloads(log_file_path):
         return
     
     # Create summary metrics - ensure we handle None values
-    total_time = sum(reload.get('reset_time', 0.0) or 0.0 for reload in domain_reloads)
+    total_time = sum((reload.get('reset_time', 0) or 0) for reload in domain_reloads)
     avg_time = total_time / len(domain_reloads) if domain_reloads else 0
     
     col1, col2, col3 = st.columns(3)
@@ -2330,14 +2428,38 @@ def visualize_domain_reloads(log_file_path):
     # Add option to select a specific domain reload
     st.subheader("Detailed Domain Reload Analysis")
     
+    # Store the selected reload index in session state to preserve it during reruns
+    if 'selected_reload_idx' not in st.session_state:
+        st.session_state.selected_reload_idx = 0
+    
     selected_reload_idx = st.selectbox(
         "Select a domain reload to analyze in detail:",
         range(len(domain_reloads)),
+        index=st.session_state.selected_reload_idx,
         format_func=lambda i: f"Reload #{i}: {domain_reloads[i].get('timestamp_str')} ({domain_reloads[i].get('reset_time', 0) or 0:.2f}s)"
     )
     
+    # Update the session state
+    st.session_state.selected_reload_idx = selected_reload_idx
     
-    if st.button("Analyze Selected Domain Reload"):
+    # Create key for the button to prevent id conflicts
+    button_key = f"analyze_domain_reload_{selected_reload_idx}"
+    
+    if st.button("Analyze Selected Domain Reload", key=button_key):
+        # Store the current tab index in session state
+        # Find which tab this is (Domain Reloads)
+        tab_titles = []
+        if 'player_build_info' in st.session_state.parsed_data and st.session_state.parsed_data['player_build_info']:
+            tab_titles.append("Player Build Performance")
+        if 'build_df' in st.session_state.parsed_data and not st.session_state.parsed_data['build_df'].empty:
+            tab_titles.append("Build Report")
+        if 'loading_df' in st.session_state.parsed_data and not st.session_state.parsed_data['loading_df'].empty:
+            tab_titles.append("Project Loading")
+        if 'domain_reloads' in st.session_state.parsed_data and st.session_state.parsed_data['domain_reloads']:
+            tab_titles.append("Domain Reloads")
+            # Set the active tab to Domain Reloads
+            st.session_state.active_tab = tab_titles.index("Domain Reloads")
+        
         with st.spinner("Analyzing domain reload details..."):
             # Visualize the selected domain reload
             visualize_domain_reload_details(domain_reloads[selected_reload_idx])
@@ -3012,12 +3134,16 @@ def visualize_log_data(log_file_path, parsing_options=None):
     if has_il2cpp_data:
         tab_titles.append("IL2CPP Processing")
     
+    # Initialize active tab in session state if it doesn't exist
+    if 'active_tab' not in st.session_state:
+        st.session_state.active_tab = 0
+    
     # If we don't have any data, show a message
     if not tab_titles:
         st.error("No actionable Unity build data found in the log file.")
         return
     
-    # Create the tabs
+    # Create the tabs and track which one is clicked
     tabs = st.tabs(tab_titles)
     
     # Populate tabs based on available data
@@ -3025,74 +3151,94 @@ def visualize_log_data(log_file_path, parsing_options=None):
 
     if has_build_info:
         with tabs[tab_index]:
-            update_spinner, spinner_container = show_big_spinner("Processing Player Build Information...")
-            start_time = time.time()
-            visualize_player_build_info(player_build_info)
-            section_times["Visualize Player Build Info"] = time.time() - start_time
-            spinner_container.empty()
+            if "active_tab" not in st.session_state or st.session_state.active_tab != tab_index:
+                st.session_state.active_tab = tab_index
+                st.rerun()
+            if st.session_state.active_tab == tab_index:
+                update_spinner, spinner_container = show_big_spinner("Processing Player Build Information...")
+                start_time = time.time()
+                visualize_player_build_info(player_build_info)
+                section_times["Visualize Player Build Info"] = time.time() - start_time
+                spinner_container.empty()
         tab_index += 1
 
     if has_build_report:
         with tabs[tab_index]:
-            update_spinner, spinner_container = show_big_spinner("Analyzing Build Report...")
-            start_time = time.time()
-            visualize_build_report(build_df, total_build_size, total_build_unit)
-            section_times["Visualize Build Report"] = time.time() - start_time
-            spinner_container.empty()
+            if "active_tab" not in st.session_state or st.session_state.active_tab != tab_index:
+                st.session_state.active_tab = tab_index
+                st.rerun()
+            if st.session_state.active_tab == tab_index:
+                update_spinner, spinner_container = show_big_spinner("Analyzing Build Report...")
+                start_time = time.time()
+                visualize_build_report(build_df, total_build_size, total_build_unit)
+                section_times["Visualize Build Report"] = time.time() - start_time
+                spinner_container.empty()
         tab_index += 1
         
     if has_loading_data:
         with tabs[tab_index]:
-            update_spinner, spinner_container = show_big_spinner("Analyzing Project Loading Times...")
-            start_time = time.time()
-            visualize_loading_times(loading_df)
-            section_times["Visualize Loading Times"] = time.time() - start_time
-            spinner_container.empty()
+            if "active_tab" not in st.session_state or st.session_state.active_tab != tab_index:
+                st.session_state.active_tab = tab_index
+                st.rerun()
+            if st.session_state.active_tab == tab_index:
+                update_spinner, spinner_container = show_big_spinner("Analyzing Project Loading Times...")
+                start_time = time.time()
+                visualize_loading_times(loading_df)
+                section_times["Visualize Loading Times"] = time.time() - start_time
+                spinner_container.empty()
         tab_index += 1
 
     if has_domain_reloads:
         with tabs[tab_index]:
-            update_spinner, spinner_container = show_big_spinner("Analyzing Domain Reloads...")
-            start_time = time.time()
-            visualize_domain_reloads(log_file_path)
-            section_times["Visualize Domain Reloads"] = time.time() - start_time
-            spinner_container.empty()
+            if "active_tab" not in st.session_state or st.session_state.active_tab != tab_index:
+                st.session_state.active_tab = tab_index
+                st.rerun()
+            if st.session_state.active_tab == tab_index:
+                update_spinner, spinner_container = show_big_spinner("Analyzing Domain Reloads...")
+                start_time = time.time()
+                visualize_domain_reloads(log_file_path)
+                section_times["Visualize Domain Reloads"] = time.time() - start_time
+                spinner_container.empty()
         tab_index += 1
 
     if has_refresh_data:
         with tabs[tab_index]:
-            update_spinner, spinner_container = show_big_spinner("Analyzing Asset Pipeline Refreshes...")
-            start_time = time.time()
-            visualize_pipeline_refreshes(refresh_df, log_file_path)
-            section_times["Visualize Pipeline Refreshes"] = time.time() - start_time
-            spinner_container.empty()
+            if st.session_state.active_tab == tab_index:
+                update_spinner, spinner_container = show_big_spinner("Analyzing Asset Pipeline Refreshes...")
+                start_time = time.time()
+                visualize_pipeline_refreshes(refresh_df, log_file_path)
+                section_times["Visualize Pipeline Refreshes"] = time.time() - start_time
+                spinner_container.empty()
         tab_index += 1
 
     if has_import_data:
         with tabs[tab_index]:
-            update_spinner, spinner_container = show_big_spinner("Analyzing Asset Imports...")
-            start_time = time.time()
-            visualize_asset_imports(import_df)
-            section_times["Visualize Asset Imports"] = time.time() - start_time
-            spinner_container.empty()
+            if st.session_state.active_tab == tab_index:
+                update_spinner, spinner_container = show_big_spinner("Analyzing Asset Imports...")
+                start_time = time.time()
+                visualize_asset_imports(import_df)
+                section_times["Visualize Asset Imports"] = time.time() - start_time
+                spinner_container.empty()
         tab_index += 1
 
     if has_shader_data:
         with tabs[tab_index]:
-            update_spinner, spinner_container = show_big_spinner("Analyzing Shader Compilation Data...")
-            start_time = time.time()
-            visualize_shader_data(shader_df, shader_issues)
-            section_times["Visualize Shader Data"] = time.time() - start_time
-            spinner_container.empty()
+            if st.session_state.active_tab == tab_index:
+                update_spinner, spinner_container = show_big_spinner("Analyzing Shader Compilation Data...")
+                start_time = time.time()
+                visualize_shader_data(shader_df, shader_issues)
+                section_times["Visualize Shader Data"] = time.time() - start_time
+                spinner_container.empty()
         tab_index += 1
         
     if has_il2cpp_data:
         with tabs[tab_index]:
-            update_spinner, spinner_container = show_big_spinner("Analyzing IL2CPP Processing...")
-            start_time = time.time()
-            visualize_il2cpp_data(il2cpp_data)
-            section_times["Visualize IL2CPP Data"] = time.time() - start_time
-            spinner_container.empty()
+            if st.session_state.active_tab == tab_index:
+                update_spinner, spinner_container = show_big_spinner("Analyzing IL2CPP Processing...")
+                start_time = time.time()
+                visualize_il2cpp_data(il2cpp_data)
+                section_times["Visualize IL2CPP Data"] = time.time() - start_time
+                spinner_container.empty()
 
 def generate_pdf_report(log_file_path, parsing_data):
     """Generate a PDF report with key findings from the log analysis."""
@@ -3893,7 +4039,7 @@ if __name__ == "__main__":
             file_identifier = f"{file_details['filename']}_{file_details['size']}"
             
             # If the file has changed, clear the cached data
-            if st.session_state.previous_file_name != file_identifier:
+            if 'previous_file_name' not in st.session_state or st.session_state.previous_file_name != file_identifier:
                 st.session_state.previous_file_name = file_identifier
                 # Clear the cached parsed data
                 if 'parsed_data' in st.session_state:
@@ -3901,12 +4047,12 @@ if __name__ == "__main__":
                 st.info("New log file detected. Analyzing...")
             
             with st.spinner("Analyzing log file..."):
-                # Handle uploaded file
-                with open("temp_log.txt", "wb") as f:
-                    f.write(current_log_file.getvalue())
+                # Instead of writing to a file, use a BytesIO object in memory
+                import io
+                log_contents = io.BytesIO(current_log_file.getvalue())
                 
-                # Pass the parsing options from session_state
-                visualize_log_data("temp_log.txt", parsing_options=st.session_state.parse_options)
+                # Modify your parsing functions to accept file-like objects instead of paths
+                visualize_log_data(log_contents, parsing_options=st.session_state.parse_options)
         else:
             # Reset the previous file name when no file is uploaded
             st.session_state.previous_file_name = None
