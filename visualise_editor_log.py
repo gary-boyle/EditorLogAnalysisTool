@@ -200,7 +200,8 @@ def read_log_content(log_file):
         # It's a file-like object (BytesIO)
         log_file.seek(0)
         return log_file.read().decode('utf-8', errors='ignore')
-    
+
+@st.cache_data    
 def parse_shader_log(log_file_path):
     content = read_log_content(log_file_path)
     
@@ -261,6 +262,7 @@ def parse_shader_log(log_file_path):
     
     return pd.DataFrame(parsed_data) if parsed_data else pd.DataFrame()
 
+@st.cache_data
 def parse_asset_imports(log_file):
     """Extract asset import data from the log file."""
     # Updated regex pattern to make timestamp optional
@@ -313,6 +315,7 @@ def parse_asset_imports(log_file):
     
     return pd.DataFrame(import_data) if import_data else pd.DataFrame()
 
+@st.cache_data
 def parse_loading_times(log_file):
     """Parse Unity project loading time data from log file."""
     # Updated pattern to make timestamp optional
@@ -399,7 +402,7 @@ def parse_loading_times(log_file):
     
     return pd.DataFrame(loading_data) if loading_data else pd.DataFrame()
 
-
+@st.cache_data
 def parse_build_report(log_file):
     """Parse Unity build report data from log file."""
     # Updated pattern to make timestamp optional
@@ -471,7 +474,7 @@ def parse_build_report(log_file):
     
     return pd.DataFrame(build_data) if build_data else pd.DataFrame(), total_build_size, total_build_unit
 
-
+@st.cache_data
 def parse_asset_pipeline_refresh(log_file):
     """Extract asset pipeline refresh information from log file."""
     # Updated pattern to make timestamp optional
@@ -521,7 +524,7 @@ def parse_asset_pipeline_refresh(log_file):
     
     return pd.DataFrame(refresh_data) if refresh_data else pd.DataFrame()
 
-
+@st.cache_data
 def parse_asset_pipeline_refresh_details(log_file):
     """Extract detailed breakdown of asset pipeline refresh operations."""
     # Pattern to match asset pipeline refresh entries with ID and time
@@ -633,7 +636,7 @@ def parse_asset_pipeline_refresh_details(log_file):
     
     return refresh_details
 
-
+@st.cache_data
 def parse_domain_reloads(log_file):
     """Extract domain reload information from log file with proper timing extraction."""
     domain_reloads = []
@@ -785,8 +788,7 @@ def parse_domain_reloads(log_file):
     
     return domain_reloads
 
-
-
+@st.cache_data
 def parse_player_build_info(log_file):
     """Extract player build information from log file."""
     # Updated pattern to make timestamp optional
@@ -855,7 +857,7 @@ def parse_player_build_info(log_file):
     
     return build_info_entries
 
-
+@st.cache_data
 def parse_il2cpp_processing(log_file):
     """Extract IL2CPP processing data from the log file."""
     # Patterns for IL2CPP entries
@@ -946,6 +948,7 @@ def parse_il2cpp_processing(log_file):
     
     return il2cpp_data
 
+@st.cache_data
 def parse_tundra_build_info(log_file):
     """Extract Tundra build information from the log file."""
     tundra_pattern = r'\*\*\* Tundra build success \((\d+\.\d+) seconds - (\d+:\d+:\d+)\), (\d+) items updated, (\d+) evaluated'
@@ -974,6 +977,7 @@ def parse_tundra_build_info(log_file):
     
     return tundra_info
 
+@st.cache_data
 def parse_shader_errors_warnings(log_file):
     """Extract shader errors and warnings from the log file."""
     error_pattern = r"Shader error in '([^']+)': (.*)"
@@ -1569,8 +1573,6 @@ def visualize_shader_data(shader_df, shader_issues=None):
     if not shader_df.empty:
         with st.expander("View Shader Compilation Raw Data"):
             st.dataframe(sorted_df)
-
-    
 
 def visualize_asset_imports(import_df):
     st.header("Unity Asset Import Analytics")
@@ -3153,7 +3155,6 @@ def visualize_log_data(log_file_path, parsing_options=None):
         with tabs[tab_index]:
             if "active_tab" not in st.session_state or st.session_state.active_tab != tab_index:
                 st.session_state.active_tab = tab_index
-                st.rerun()
             if st.session_state.active_tab == tab_index:
                 update_spinner, spinner_container = show_big_spinner("Processing Player Build Information...")
                 start_time = time.time()
@@ -3166,7 +3167,6 @@ def visualize_log_data(log_file_path, parsing_options=None):
         with tabs[tab_index]:
             if "active_tab" not in st.session_state or st.session_state.active_tab != tab_index:
                 st.session_state.active_tab = tab_index
-                st.rerun()
             if st.session_state.active_tab == tab_index:
                 update_spinner, spinner_container = show_big_spinner("Analyzing Build Report...")
                 start_time = time.time()
@@ -3179,7 +3179,6 @@ def visualize_log_data(log_file_path, parsing_options=None):
         with tabs[tab_index]:
             if "active_tab" not in st.session_state or st.session_state.active_tab != tab_index:
                 st.session_state.active_tab = tab_index
-                st.rerun()
             if st.session_state.active_tab == tab_index:
                 update_spinner, spinner_container = show_big_spinner("Analyzing Project Loading Times...")
                 start_time = time.time()
@@ -3192,7 +3191,6 @@ def visualize_log_data(log_file_path, parsing_options=None):
         with tabs[tab_index]:
             if "active_tab" not in st.session_state or st.session_state.active_tab != tab_index:
                 st.session_state.active_tab = tab_index
-                st.rerun()
             if st.session_state.active_tab == tab_index:
                 update_spinner, spinner_container = show_big_spinner("Analyzing Domain Reloads...")
                 start_time = time.time()
@@ -3203,6 +3201,8 @@ def visualize_log_data(log_file_path, parsing_options=None):
 
     if has_refresh_data:
         with tabs[tab_index]:
+            if "active_tab" not in st.session_state or st.session_state.active_tab != tab_index:
+                st.session_state.active_tab = tab_index
             if st.session_state.active_tab == tab_index:
                 update_spinner, spinner_container = show_big_spinner("Analyzing Asset Pipeline Refreshes...")
                 start_time = time.time()
@@ -3213,6 +3213,8 @@ def visualize_log_data(log_file_path, parsing_options=None):
 
     if has_import_data:
         with tabs[tab_index]:
+            if "active_tab" not in st.session_state or st.session_state.active_tab != tab_index:
+                st.session_state.active_tab = tab_index
             if st.session_state.active_tab == tab_index:
                 update_spinner, spinner_container = show_big_spinner("Analyzing Asset Imports...")
                 start_time = time.time()
@@ -3223,6 +3225,8 @@ def visualize_log_data(log_file_path, parsing_options=None):
 
     if has_shader_data:
         with tabs[tab_index]:
+            if "active_tab" not in st.session_state or st.session_state.active_tab != tab_index:
+                st.session_state.active_tab = tab_index
             if st.session_state.active_tab == tab_index:
                 update_spinner, spinner_container = show_big_spinner("Analyzing Shader Compilation Data...")
                 start_time = time.time()
@@ -3233,6 +3237,8 @@ def visualize_log_data(log_file_path, parsing_options=None):
         
     if has_il2cpp_data:
         with tabs[tab_index]:
+            if "active_tab" not in st.session_state or st.session_state.active_tab != tab_index:
+                st.session_state.active_tab = tab_index
             if st.session_state.active_tab == tab_index:
                 update_spinner, spinner_container = show_big_spinner("Analyzing IL2CPP Processing...")
                 start_time = time.time()
