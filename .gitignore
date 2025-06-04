@@ -1,1 +1,5 @@
 temp_log.txt
+/Parsers/__pycache__
+/Reporting/__pycache__
+/Utils/__pycache__
+/Visualizers/__pycache__

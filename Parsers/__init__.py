@@ -1,0 +1,12 @@
+from .asset_parser import *
+from .assetpipeline_parser import *
+from .assetpipelinedetails_parser import *
+from .buildreport_parser import *
+from .domainreload_parser import *
+from .il2cpp_parser import *
+from .loading_parser import *
+from .playerbuild_parser import *
+from .shader_parser import *
+from .shadererrors_parser import *
+from .tundra_parser import *
+
