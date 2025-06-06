@@ -347,13 +347,16 @@ def visualize_log_data(log_file_path, parsing_options=None):
             if not import_df.empty and 'import_time_seconds' in import_df.columns:
                 total_import_time = import_df['import_time_seconds'].sum()
             st.metric("Total Asset Import Time", format_time(total_import_time))
-
+            
         # Shader Compilation time
         with col3:
             total_shader_time = None
-            if not shader_df.empty and 'compilation_seconds' in shader_df.columns:
+            if not shader_df.empty and 'total_seconds' in shader_df.columns:
+                total_shader_time = shader_df['total_seconds'].sum()
+            elif not shader_df.empty and 'compilation_seconds' in shader_df.columns:
+                # Fallback to compilation_seconds if total_seconds is not available
                 total_shader_time = shader_df['compilation_seconds'].sum()
-            st.metric("Total Shader Compilation Time", format_time(total_shader_time))
+            st.metric("Total Shader Processing Time", format_time(total_shader_time))
         
         # Calculate session duration if timestamps are available
         all_timestamps = []

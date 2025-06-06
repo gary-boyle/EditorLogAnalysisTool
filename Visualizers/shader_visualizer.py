@@ -36,26 +36,26 @@ def visualize_shader_data(shader_df, shader_issues=None):
         return
     
     # Check if we have any essential shader compilation data
-    has_compilation_data = 'compilation_seconds' in shader_df.columns or 'shader_name' in shader_df.columns
+    has_compilation_data = 'total_seconds' in shader_df.columns or 'shader_name' in shader_df.columns
     
     if not has_compilation_data:
         st.warning("No shader compilation performance data found in the log.")
         return
     
-    # Sort dataframe by compilation time in descending order if the column exists
-    if 'compilation_seconds' in shader_df.columns:
-        sorted_df = shader_df.sort_values('compilation_seconds', ascending=False)
+    # Sort dataframe by total time in descending order if the column exists
+    if 'total_seconds' in shader_df.columns:
+        sorted_df = shader_df.sort_values('total_seconds', ascending=False)
     else:
         sorted_df = shader_df  # No sorting if column doesn't exist
-        st.info("Compilation time data not found. Some visualizations will be limited.")
+        st.info("Total processing time data not found. Some visualizations will be limited.")
     
     # Summary metrics
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total Shaders", len(shader_df))
     with col2:
-        total_compilation_time = shader_df['compilation_seconds'].sum() if 'compilation_seconds' in shader_df.columns else "N/A"
-        st.metric("Total Compilation Time", f"{total_compilation_time:.2f}s" if isinstance(total_compilation_time, (int, float)) else total_compilation_time)
+        total_time = shader_df['total_seconds'].sum() if 'total_seconds' in shader_df.columns else "N/A"
+        st.metric("Total Processing Time", f"{total_time:.2f}s" if isinstance(total_time, (int, float)) else total_time)
     with col3:
         total_cpu_time = shader_df['compilation_cpu_time'].sum() if 'compilation_cpu_time' in shader_df.columns else "N/A"
         st.metric("Total CPU Time", f"{total_cpu_time:.2f}s" if isinstance(total_cpu_time, (int, float)) else total_cpu_time)
@@ -63,23 +63,23 @@ def visualize_shader_data(shader_df, shader_issues=None):
         total_variants = int(shader_df['compiled_variants'].sum()) if 'compiled_variants' in shader_df.columns else "N/A"
         st.metric("Total Variants Compiled", total_variants)
     
-    # Only show visualization if we have compilation time and shader name data
-    if 'compilation_seconds' in shader_df.columns and 'shader_name' in shader_df.columns:
-        # Compilation time by shader
-        st.subheader("Compilation Time by Shader")
+    # Only show visualization if we have total time and shader name data
+    if 'total_seconds' in shader_df.columns and 'shader_name' in shader_df.columns:
+        # Total processing time by shader
+        st.subheader("Total Processing Time by Shader")
         
         fig = px.bar(
             sorted_df,
             x='shader_name',
-            y='compilation_seconds',
+            y='total_seconds',
             color='pass_name' if 'pass_name' in sorted_df.columns else None,
             hover_data=['compiled_variants', 'compilation_cpu_time'] if all(col in sorted_df.columns for col in ['compiled_variants', 'compilation_cpu_time']) else None,
-            labels={'compilation_seconds': 'Compilation Time (s)', 'shader_name': 'Shader Name'},
+            labels={'total_seconds': 'Total Processing Time (s)', 'shader_name': 'Shader Name'},
             height=500
         )
         st.plotly_chart(fig, use_container_width=True)
     elif 'shader_name' in shader_df.columns:
-        st.info("Shader names found but compilation time data is missing.")
+        st.info("Shader names found but processing time data is missing.")
     
     # Show top shaders by variant count after scriptable stripping
     if 'after_scriptable_stripping' in shader_df.columns and not shader_df['after_scriptable_stripping'].isna().all():
@@ -213,15 +213,62 @@ def visualize_shader_data(shader_df, shader_issues=None):
             
             st.plotly_chart(fig, use_container_width=True)
 
-    # NEW: Add compilation time by pass name if available
-    if 'pass_name' in shader_df.columns and 'compilation_seconds' in shader_df.columns and not shader_df['pass_name'].isna().all():
-        st.subheader("Compilation Time by Pass Name")
+    # Time distribution between shader types
+    if 'shader_type' in shader_df.columns and 'total_seconds' in shader_df.columns:
+        st.subheader("Time Distribution Analysis")
         
-        # Group by pass name and sum compilation times
+        # Create columns for different visualizations
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Group by shader type 
+            type_times = shader_df.groupby('shader_type').agg(
+                total_time=('total_seconds', 'sum'),
+                count=('shader_name', 'count')
+            ).reset_index()
+            
+            fig = px.pie(
+                type_times, 
+                values='total_time', 
+                names='shader_type',
+                title="Processing Time by Shader Type",
+                hole=0.4
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            # Regular shaders time components
+            if 'processed_seconds' in shader_df.columns:
+                regular_shaders = shader_df[shader_df['shader_type'] == 'regular']
+                
+                if not regular_shaders.empty:
+                    processed_time = regular_shaders['processed_seconds'].sum()
+                    compilation_time = regular_shaders['compilation_seconds'].sum() if 'compilation_seconds' in regular_shaders.columns else 0
+                    serialization_time = regular_shaders['serialization_seconds'].sum() if 'serialization_seconds' in regular_shaders.columns else 0
+                    
+                    time_components = pd.DataFrame({
+                        'Component': ['Processing', 'Compilation', 'Serialization'],
+                        'Time': [processed_time, compilation_time, serialization_time]
+                    })
+                    
+                    fig = px.pie(
+                        time_components, 
+                        values='Time', 
+                        names='Component',
+                        title="Regular Shader Time Distribution",
+                        hole=0.4
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+    # Add processing time by pass name if available
+    if 'pass_name' in shader_df.columns and 'total_seconds' in shader_df.columns and not shader_df['pass_name'].isna().all():
+        st.subheader("Processing Time by Pass Name")
+        
+        # Group by pass name and sum processing times
         pass_name_times = shader_df.groupby('pass_name').agg(
-            total_time=('compilation_seconds', 'sum'),
-            avg_time=('compilation_seconds', 'mean'),
-            count=('compilation_seconds', 'count'),
+            total_time=('total_seconds', 'sum'),
+            avg_time=('total_seconds', 'mean'),
+            count=('total_seconds', 'count'),
             total_variants=('compiled_variants', 'sum') if 'compiled_variants' in shader_df.columns else (None, None)
         ).reset_index().sort_values('total_time', ascending=False)
         
@@ -229,13 +276,13 @@ def visualize_shader_data(shader_df, shader_issues=None):
         pass_name_times['avg_time_formatted'] = pass_name_times['avg_time'].apply(lambda x: f"{x:.3f}s")
         pass_name_times['total_time_formatted'] = pass_name_times['total_time'].apply(lambda x: f"{x:.2f}s")
         
-        # Bar chart of compilation time by pass name
+        # Bar chart of processing time by pass name
         fig = px.bar(
             pass_name_times,
             x='pass_name',
             y='total_time',
             text=pass_name_times['count'],
-            labels={'pass_name': 'Pass Name', 'total_time': 'Total Compilation Time (s)', 'count': 'Shader Count'},
+            labels={'pass_name': 'Pass Name', 'total_time': 'Total Processing Time (s)', 'count': 'Shader Count'},
             height=400,
             color='count'
         )
@@ -243,21 +290,21 @@ def visualize_shader_data(shader_df, shader_issues=None):
         st.plotly_chart(fig, use_container_width=True)
         
         # Display the detailed table
-        with st.expander("View Pass Name Compilation Details"):
+        with st.expander("View Pass Name Processing Details"):
             display_cols = ['pass_name', 'count', 'total_time_formatted', 'avg_time_formatted']
             if 'total_variants' in pass_name_times.columns and not pass_name_times['total_variants'].isna().all():
                 display_cols.append('total_variants')
             st.dataframe(pass_name_times[display_cols])
     
-    # Add compilation time by pass type if available
-    if 'pass_type' in shader_df.columns and 'compilation_seconds' in shader_df.columns and not shader_df['pass_type'].isna().all():
-        st.subheader("Compilation Time by Pass Type")
+    # Add processing time by pass type if available
+    if 'pass_type' in shader_df.columns and 'total_seconds' in shader_df.columns and not shader_df['pass_type'].isna().all():
+        st.subheader("Processing Time by Pass Type")
         
-        # Group by pass type and sum compilation times
+        # Group by pass type and sum processing times
         pass_type_times = shader_df.groupby('pass_type').agg(
-            total_time=('compilation_seconds', 'sum'),
-            avg_time=('compilation_seconds', 'mean'),
-            count=('compilation_seconds', 'count'),
+            total_time=('total_seconds', 'sum'),
+            avg_time=('total_seconds', 'mean'),
+            count=('total_seconds', 'count'),
             total_variants=('compiled_variants', 'sum') if 'compiled_variants' in shader_df.columns else (None, None)
         ).reset_index().sort_values('total_time', ascending=False)
         
@@ -265,13 +312,13 @@ def visualize_shader_data(shader_df, shader_issues=None):
         pass_type_times['avg_time_formatted'] = pass_type_times['avg_time'].apply(lambda x: f"{x:.3f}s")
         pass_type_times['total_time_formatted'] = pass_type_times['total_time'].apply(lambda x: f"{x:.2f}s")
         
-        # Bar chart of compilation time by pass type
+        # Bar chart of processing time by pass type
         fig = px.bar(
             pass_type_times,
             x='pass_type',
             y='total_time',
             text=pass_type_times['count'],
-            labels={'pass_type': 'Pass Type', 'total_time': 'Total Compilation Time (s)', 'count': 'Shader Count'},
+            labels={'pass_type': 'Pass Type', 'total_time': 'Total Processing Time (s)', 'count': 'Shader Count'},
             height=400,
             color='count'
         )
@@ -279,7 +326,7 @@ def visualize_shader_data(shader_df, shader_issues=None):
         st.plotly_chart(fig, use_container_width=True)
         
         # Display the detailed table
-        with st.expander("View Pass Type Compilation Details"):
+        with st.expander("View Pass Type Processing Details"):
             display_cols = ['pass_type', 'count', 'total_time_formatted', 'avg_time_formatted']
             if 'total_variants' in pass_type_times.columns and not pass_type_times['total_variants'].isna().all():
                 display_cols.append('total_variants')
