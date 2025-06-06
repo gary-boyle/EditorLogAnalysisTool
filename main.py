@@ -1,4 +1,5 @@
 import streamlit as st
+import sys
 
 from Parsers import *
 from Reporting import *
@@ -8,7 +9,6 @@ from Visualizers import *
 
 if __name__ == "__main__":
     # For testing with sample data
-    import sys
     if len(sys.argv) > 1:
         log_file = sys.argv[1]
         visualize_log_data(log_file)
@@ -28,11 +28,108 @@ if __name__ == "__main__":
                 'il2cpp': True,
                 'tundra': True
             }
+
+        # Initialize flag for preset change
+        if 'preset_changed' not in st.session_state:
+            st.session_state.preset_changed = False    
             
         # Title and description
         st.title("Unity Build Log Analyzer")
         st.markdown("This tool analyzes Unity Editor log files to provide insights into build performance and other metrics.")
         
+        # Add preset dropdown at the top
+        st.markdown("### Analysis Preset Selection")
+        st.markdown("Select a preset to focus on a specific type of analysis:")
+        
+        # Define preset options
+        preset_options = {
+            "All Analysis Types": {
+                'shader': True, 'imports': True, 'loading': True, 'build_report': True,
+                'pipeline': True, 'domain_reload': True, 'player_build': True, 
+                'il2cpp': True, 'tundra': True, 'timestamp_gaps': True
+            },
+            "Shader Analysis Only": {
+                'shader': True, 'imports': False, 'loading': False, 'build_report': False,
+                'pipeline': False, 'domain_reload': False, 'player_build': False,
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False
+            },
+            "Asset Imports Only": {
+                'shader': False, 'imports': True, 'loading': False, 'build_report': False,
+                'pipeline': False, 'domain_reload': False, 'player_build': False,
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False
+            },
+            "Loading Analysis Only": {
+                'shader': False, 'imports': False, 'loading': True, 'build_report': False,
+                'pipeline': False, 'domain_reload': False, 'player_build': False,
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False
+            },
+            "Build Report Only": {
+                'shader': False, 'imports': False, 'loading': False, 'build_report': True,
+                'pipeline': False, 'domain_reload': False, 'player_build': False,
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False
+            },
+            "Pipeline Refresh Analysis Only": {
+                'shader': False, 'imports': False, 'loading': False, 'build_report': False,
+                'pipeline': True, 'domain_reload': False, 'player_build': False,
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False
+            },
+            "Domain Reload Analysis Only": {
+                'shader': False, 'imports': False, 'loading': False, 'build_report': False,
+                'pipeline': False, 'domain_reload': True, 'player_build': False,
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False
+            },
+            "Player Build Analysis Only": {
+                'shader': False, 'imports': False, 'loading': False, 'build_report': False,
+                'pipeline': False, 'domain_reload': False, 'player_build': True,
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False
+            },
+            "IL2CPP Analysis Only": {
+                'shader': False, 'imports': False, 'loading': False, 'build_report': False,
+                'pipeline': False, 'domain_reload': False, 'player_build': False,
+                'il2cpp': True, 'tundra': False, 'timestamp_gaps': False
+            },
+            "Timestamp Gaps Only": {
+                'shader': False, 'imports': False, 'loading': False, 'build_report': False,
+                'pipeline': False, 'domain_reload': False, 'player_build': False,
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': True
+            }
+        }
+        
+        # Initialize session state for selected preset if it doesn't exist
+        if 'selected_preset' not in st.session_state:
+            st.session_state.selected_preset = "All Analysis Types"
+        
+         # Function to handle preset changes
+        def on_preset_change():
+            selected = st.session_state.preset_selector
+            if selected != st.session_state.selected_preset:
+                st.session_state.selected_preset = selected
+                
+                # Update parse options based on selected preset
+                st.session_state.parse_options = preset_options[selected].copy()
+                
+                # Clear any previously parsed data when changing presets
+                if 'parsed_data' in st.session_state:
+                    del st.session_state.parsed_data
+                
+                # Set flag to indicate need for rerun
+                st.session_state.preset_changed = True
+        
+        # Create the dropdown with on_change callback
+        selected_preset = st.selectbox(
+            "Analysis Preset",
+            options=list(preset_options.keys()),
+            index=list(preset_options.keys()).index(st.session_state.selected_preset),
+            key="preset_selector",
+            on_change=on_preset_change
+        )
+        
+        # Check if preset changed and rerun if needed
+        if st.session_state.preset_changed:
+            st.session_state.preset_changed = False  # Reset the flag
+            st.rerun()
+        
+
         # First show parsing options
         with st.expander("Parsing Options (Customize what to analyze)", expanded=False):
             st.caption("Select which data to analyze (disable options to speed up processing for large logs)")
@@ -95,6 +192,12 @@ if __name__ == "__main__":
                     value=st.session_state.parse_options['tundra'],
                     help="Parse Tundra build system information"
                 )
+                st.session_state.parse_options['timestamp_gaps'] = st.checkbox(
+                        "Timestamp Gaps", 
+                        value=st.session_state.parse_options.get('timestamp_gaps', True),
+                        help="Analyze gaps between timestamps to detect frozen or unresponsive periods"
+                )
+                
         
         # Then show file uploader
         st.markdown("### Upload Log File")

@@ -1,6 +1,6 @@
 import base64
 import re
-
+import io
 def convert_to_mb(value, unit):
     """Convert a size value to MB"""
     unit = unit.lower()
@@ -96,17 +96,62 @@ def check_log_data_completeness(log_file_path, shader_df, import_df, loading_df,
     return issues
 
 def extract_unity_version(log_file_path):
-    """Extract Unity version info from the log file."""
-    version_pattern = r"Version is '([^']+)'"
+    """
+    Extract Unity version info from the log file.
+    Works with both file paths and file-like objects (BytesIO/StringIO).
+    """
+    version_pattern = r"Version is ['\"]([^'\"]+)['\"]"
     
     try:
-        with open(log_file_path, 'r') as file:
-            for line in file:
+        # Handle both file paths and BytesIO/StringIO objects
+        if isinstance(log_file_path, (io.BytesIO, io.StringIO)):
+            # Reset position to start of file
+            log_file_path.seek(0)
+            
+            if isinstance(log_file_path, io.BytesIO):
+                # Convert bytes to string
+                content = log_file_path.getvalue().decode('utf-8', errors='ignore')
+                lines = content.splitlines()
+            else:
+                # It's already a StringIO
+                lines = log_file_path.getvalue().splitlines()
+                
+            for line in lines:
                 if "Built from" in line and "Version is" in line:
                     match = re.search(version_pattern, line)
                     if match:
                         return match.group(1)
+        else:
+            # It's a file path
+            with open(log_file_path, 'r', errors='ignore') as file:
+                for line in file:
+                    if "Built from" in line and "Version is" in line:
+                        match = re.search(version_pattern, line)
+                        if match:
+                            return match.group(1)
+                            
     except Exception as e:
-        print(f"Error reading log file: {e}")
+        print(f"Error extracting Unity version: {e}")
+    
+    # Try again with a more relaxed pattern if initial search fails
+    try:
+        if isinstance(log_file_path, (io.BytesIO, io.StringIO)):
+            log_file_path.seek(0)
+            content = log_file_path.read().decode('utf-8', errors='ignore') if isinstance(log_file_path, io.BytesIO) else log_file_path.read()
+            
+            # Look for any line with Unity version pattern
+            broader_pattern = r"\d{4}\.\d+\.\d+[fb]\d+"
+            match = re.search(broader_pattern, content)
+            if match:
+                return match.group(0)
+        else:
+            with open(log_file_path, 'r', errors='ignore') as file:
+                content = file.read()
+                broader_pattern = r"\d{4}\.\d+\.\d+[fb]\d+"
+                match = re.search(broader_pattern, content)
+                if match:
+                    return match.group(0)
+    except Exception as e:
+        print(f"Error in secondary Unity version extraction: {e}")
     
     return None

@@ -19,8 +19,10 @@ from .il2cpp_visualizer import visualize_il2cpp_data
 from .loading_visualizer import visualize_loading_times
 from .pipelinerefresh_visualizer import visualize_pipeline_refreshes
 from .shader_visualizer import visualize_shader_data
+from .timestampgap_visualizer import visualize_timestamp_gaps
 
 def visualize_log_data(log_file_path, parsing_options=None):
+    
     # Use default options (all enabled) if none provided
     if parsing_options is None:
         parsing_options = {
@@ -249,7 +251,7 @@ def visualize_log_data(log_file_path, parsing_options=None):
                     height=400
                 )
                 parsing_fig.update_traces(texttemplate="%{text:.3f}s", textposition="outside")
-                st.plotly_chart(parsing_fig, use_container_width=True)
+                st.plotly_chart(parsing_fig, use_container_width=True, key="parsing_times_chart")
             
             with col2a:
                 st.subheader("Visualization Times")
@@ -263,7 +265,7 @@ def visualize_log_data(log_file_path, parsing_options=None):
                     height=400
                 )
                 viz_fig.update_traces(texttemplate="%{text:.3f}s", textposition="outside")
-                st.plotly_chart(viz_fig, use_container_width=True)
+                st.plotly_chart(viz_fig, use_container_width=True, key="visualization_times_chart")
             
             # Display the total time as a metric
             st.metric("Total Log Analysis Time", f"{overall_time:.2f} seconds")
@@ -421,7 +423,7 @@ def visualize_log_data(log_file_path, parsing_options=None):
                 names='Category',
                 height=400
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="time_distribution_pie") 
     
     # Calculate overall execution time
     #overall_time = time.time() - start_time_overall
@@ -438,6 +440,7 @@ def visualize_log_data(log_file_path, parsing_options=None):
     has_il2cpp_data = bool(il2cpp_data)
     has_tundra_info = bool(tundra_info)
     has_domain_reloads = len(domain_reloads) > 0
+    has_timestamp_gaps = parsing_options['timestamp_gaps']
 
     # Enhance build info with Tundra data if available
     if has_tundra_info and player_build_info:
@@ -461,6 +464,8 @@ def visualize_log_data(log_file_path, parsing_options=None):
         tab_titles.append("Shader Compilation")
     if has_il2cpp_data:
         tab_titles.append("IL2CPP Processing")
+    if has_timestamp_gaps:
+        tab_titles.append("Timestamp Gaps")  
     
     # Initialize active tab in session state if it doesn't exist
     if 'active_tab' not in st.session_state:
@@ -571,3 +576,16 @@ def visualize_log_data(log_file_path, parsing_options=None):
                 visualize_il2cpp_data(il2cpp_data)
                 section_times["Visualize IL2CPP Data"] = time.time() - start_time
                 spinner_container.empty()
+        tab_index += 1
+
+    if has_timestamp_gaps:
+        with tabs[tab_index]:
+            if "active_tab" not in st.session_state or st.session_state.active_tab != tab_index:
+                st.session_state.active_tab = tab_index
+            if st.session_state.active_tab == tab_index:
+                update_spinner, spinner_container = show_big_spinner("Analyzing Timestamp Gaps...")
+                start_time = time.time()
+                visualize_timestamp_gaps(log_file_path)
+                section_times["Visualize Timestamp Gaps"] = time.time() - start_time
+                spinner_container.empty()
+ 
