@@ -1,5 +1,8 @@
 import streamlit as st
 import sys
+import argparse
+import os
+from datetime import datetime
 
 from Parsers import *
 from Reporting import *
@@ -36,11 +39,15 @@ if __name__ == "__main__":
             # Determine output path for the PDF
             output_path = args.output
             if not output_path:
-                # If no output path is specified, use the same directory as the log file
+                # Get the input log file name and path
                 log_dir = os.path.dirname(args.log_file)
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_filename = f"unity_log_analysis_{timestamp}.pdf"
-                output_path = os.path.join(log_dir, output_filename)
+                log_filename = os.path.basename(args.log_file)
+                
+                # Replace .log with .pdf or just append .pdf if no extension
+                base_name, ext = os.path.splitext(log_filename)
+                pdf_filename = f"{base_name}.pdf"
+                
+                output_path = os.path.join(log_dir, pdf_filename)
             
             # Generate the PDF report
             print(f"Generating PDF report...")
