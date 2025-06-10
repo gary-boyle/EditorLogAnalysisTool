@@ -6,4 +6,4 @@ from .loading_visualizer import visualize_loading_times
 from .log_data_visualizer import visualize_log_data
 from .pipelinerefresh_visualizer import visualize_pipeline_refreshes, visualize_refresh_details
 from .shader_visualizer import display_shader_issues, visualize_shader_data
-
+from .timestampgap_visualizer import visualize_timestamp_gaps

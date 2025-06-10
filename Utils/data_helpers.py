@@ -1,6 +1,9 @@
 import base64
 import re
 import io
+import argparse
+import os
+
 def convert_to_mb(value, unit):
     """Convert a size value to MB"""
     unit = unit.lower()
@@ -155,3 +158,22 @@ def extract_unity_version(log_file_path):
         print(f"Error in secondary Unity version extraction: {e}")
     
     return None
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Unity Build Log Analyzer")
+    
+    # Main log file argument (required)
+    parser.add_argument("log_file", help="Path to Unity Editor log file", type=str)
+    
+    # Output path for PDF report (optional)
+    parser.add_argument("--output", "-o", help="Output path for PDF report (optional)", type=str)
+    
+    args = parser.parse_args()
+    
+    # Normalize paths to handle any platform-specific issues
+    args.log_file = os.path.normpath(args.log_file)
+    if args.output:
+        args.output = os.path.normpath(args.output)
+    
+    return args

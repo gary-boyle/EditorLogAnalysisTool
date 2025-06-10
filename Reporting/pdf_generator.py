@@ -9,7 +9,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 
-
+from Utils import *
 def generate_pdf_report(log_file_path, parsing_data):
     """Generate a PDF report with key findings from the log analysis."""
     shader_df = parsing_data.get('shader_df', pd.DataFrame())
@@ -45,6 +45,13 @@ def generate_pdf_report(log_file_path, parsing_data):
     subheading_style = styles['Heading2']
     normal_style = styles['Normal']
     
+    # Create a warning style
+    warning_style = ParagraphStyle(
+        'WarningStyle',
+        parent=normal_style,
+        textColor=colors.red
+    )
+    
     # Create a cell style for tables that supports wrapping
     cell_style = ParagraphStyle(
         'CellStyle',
@@ -71,6 +78,46 @@ def generate_pdf_report(log_file_path, parsing_data):
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     elements.append(Paragraph(f"Generated: {current_time}", normal_style))
     elements.append(Paragraph(f"Unity Version: {unity_version}", normal_style))
+    elements.append(Paragraph(f"Log File: {os.path.basename(log_file_path)}", normal_style))
+    elements.append(Spacer(1, 0.25*inch))
+    
+    # Add missing data warnings section
+    elements.append(Paragraph("Log Analysis Coverage", heading_style))
+    
+    # Check which data types are available/missing
+    missing_data = []
+    if shader_df.empty or 'compilation_seconds' not in shader_df.columns:
+        missing_data.append("Shader compilation data could not be found in Editor.log")
+    
+    if import_df.empty:
+        missing_data.append("Asset import data could not be found in Editor.log")
+    
+    if loading_df.empty:
+        missing_data.append("Project loading time data could not be found in Editor.log")
+    
+    if build_df.empty:
+        missing_data.append("Build report data could not be found in Editor.log")
+    
+    if refresh_df.empty:
+        missing_data.append("Asset pipeline refresh data could not be found in Editor.log")
+    
+    if not player_build_info:
+        missing_data.append("Player build performance data could not be found in Editor.log")
+    
+    if not il2cpp_data:
+        missing_data.append("IL2CPP processing data could not be found in Editor.log")
+    
+    if not domain_reloads:
+        missing_data.append("Domain reload data could not be found in Editor.log")
+    
+    # Add missing data warnings to the PDF
+    if missing_data:
+        elements.append(Paragraph("The following data types were not found:", normal_style))
+        for item in missing_data:
+            elements.append(Paragraph(f"• {item}", warning_style))
+    else:
+        elements.append(Paragraph("✓ All expected data types were found in the log file.", normal_style))
+    
     elements.append(Spacer(1, 0.25*inch))
     
     # Add summary section
@@ -137,9 +184,8 @@ def generate_pdf_report(log_file_path, parsing_data):
     elements.append(Spacer(1, 0.5*inch))
     
     # PLAYER BUILD SECTION
+    elements.append(Paragraph("Player Build Performance", heading_style))
     if player_build_info:
-        elements.append(Paragraph("Player Build Performance", heading_style))
-        
         # Use the first build entry (or allow selection in a more advanced version)
         build_info = player_build_info[0]
         
@@ -212,13 +258,14 @@ def generate_pdf_report(log_file_path, parsing_data):
                 ('GRID', (0, 0), (-1, -1), 1, colors.black)
             ]))
             elements.append(step_table)
-        
-        elements.append(Spacer(1, 0.25*inch))
+    else:
+        elements.append(Paragraph("No player build performance data was found in the log file.", warning_style))
+    
+    elements.append(Spacer(1, 0.5*inch))
     
     # BUILD REPORT SECTION
+    elements.append(Paragraph("Build Size Report", heading_style))
     if not build_df.empty:
-        elements.append(Paragraph("Build Size Report", heading_style))
-        
         # Build report summary
         total_size_readable = f"{total_build_size} {total_build_unit}" if total_build_size and total_build_unit else "N/A"
         
@@ -289,13 +336,14 @@ def generate_pdf_report(log_file_path, parsing_data):
                 ('GRID', (0, 0), (-1, -1), 1, colors.black)
             ]))
             elements.append(category_table)
-        
-        elements.append(Spacer(1, 0.5*inch))
+    else:
+        elements.append(Paragraph("No build size report data was found in the log file.", warning_style))
+    
+    elements.append(Spacer(1, 0.5*inch))
     
     # PROJECT LOADING SECTION
+    elements.append(Paragraph("Project Loading Performance", heading_style))
     if not loading_df.empty:
-        elements.append(Paragraph("Project Loading Performance", heading_style))
-        
         # Use the first loading entry
         entry = loading_df.iloc[0]
         
@@ -349,7 +397,7 @@ def generate_pdf_report(log_file_path, parsing_data):
         component_data[0] = [wrap_cell_text(cell) for cell in component_data[0]]
         
         for comp, name in subcomponent_names.items():
-            if entry[comp] is not None:
+            if comp in entry and entry[comp] is not None:
                 component_data.append([
                     wrap_cell_text(name),
                     wrap_cell_text(f"{entry[comp]:.3f}s")
@@ -367,12 +415,14 @@ def generate_pdf_report(log_file_path, parsing_data):
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
         elements.append(component_table)
-        elements.append(Spacer(1, 0.5*inch))
+    else:
+        elements.append(Paragraph("No project loading time data was found in the log file.", warning_style))
+    
+    elements.append(Spacer(1, 0.5*inch))
     
     # DOMAIN RELOAD SECTION
+    elements.append(Paragraph("Domain Reload Analysis", heading_style))
     if domain_reloads:
-        elements.append(Paragraph("Domain Reload Analysis", heading_style))
-        
         # Calculate summary metrics
         total_time = sum((reload.get('reset_time', 0) or 0) for reload in domain_reloads)
         avg_time = total_time / len(domain_reloads) if domain_reloads else 0
@@ -403,12 +453,14 @@ def generate_pdf_report(log_file_path, parsing_data):
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
         elements.append(reload_table)
-        elements.append(Spacer(1, 0.5*inch))
+    else:
+        elements.append(Paragraph("No domain reload data was found in the log file.", warning_style))
+    
+    elements.append(Spacer(1, 0.5*inch))
     
     # ASSET PIPELINE REFRESH SECTION
+    elements.append(Paragraph("Asset Pipeline Refreshes", heading_style))
     if not refresh_df.empty:
-        elements.append(Paragraph("Asset Pipeline Refreshes", heading_style))
-        
         refresh_summary = [
             ["Total Pipeline Refreshes", str(len(refresh_df))],
             ["Total Refresh Time", f"{refresh_df['total_time'].sum():.3f}s"]
@@ -467,13 +519,14 @@ def generate_pdf_report(log_file_path, parsing_data):
                 ('GRID', (0, 0), (-1, -1), 1, colors.black)
             ]))
             elements.append(top_refresh_table)
-        
-        elements.append(Spacer(1, 0.5*inch))
+    else:
+        elements.append(Paragraph("No asset pipeline refresh data was found in the log file.", warning_style))
+    
+    elements.append(Spacer(1, 0.5*inch))
     
     # ASSET IMPORT SECTION
+    elements.append(Paragraph("Asset Import Analytics", heading_style))
     if not import_df.empty:
-        elements.append(Paragraph("Asset Import Analytics", heading_style))
-        
         import_summary = [
             ["Total Assets Imported", str(len(import_df))],
             ["Total Import Time", f"{import_df['import_time_seconds'].sum():.2f}s"]
@@ -534,35 +587,70 @@ def generate_pdf_report(log_file_path, parsing_data):
                 ('GRID', (0, 0), (-1, -1), 1, colors.black)
             ]))
             elements.append(top_import_table)
-        
-        elements.append(Spacer(1, 0.5*inch))
+    else:
+        elements.append(Paragraph("No asset import data was found in the log file.", warning_style))
+    
+    elements.append(Spacer(1, 0.5*inch))
     
     # SHADER COMPILATION SECTION
-    if not shader_df.empty:
-        elements.append(Paragraph("Shader Compilation Analytics", heading_style))
-        
+    elements.append(Paragraph("Shader Compilation Analytics", heading_style))
+    if not shader_df.empty and 'compilation_seconds' in shader_df.columns:
         # Overall shader statistics
-        if 'compilation_seconds' in shader_df.columns:
-            shader_summary = [
-                ["Total Shaders", str(len(shader_df))],
-                ["Total Compilation Time", f"{shader_df['compilation_seconds'].sum():.2f}s"]
-                # Removed Average Compilation Time as requested
-            ]
+        shader_summary = [
+            ["Total Shaders", str(len(shader_df))],
+            ["Total Compilation Time", f"{shader_df['compilation_seconds'].sum():.2f}s"]
+            # Removed Average Compilation Time as requested
+        ]
+        
+        if 'compiled_variants' in shader_df.columns:
+            shader_summary.append(["Total Variants Compiled", str(int(shader_df['compiled_variants'].sum()))])
+        
+        # Apply text wrapping
+        wrapped_shader_summary = []
+        for row in shader_summary:
+            wrapped_shader_summary.append([
+                wrap_cell_text(row[0]), 
+                wrap_cell_text(row[1])
+            ])
             
-            if 'compiled_variants' in shader_df.columns:
-                shader_summary.append(["Total Variants Compiled", str(int(shader_df['compiled_variants'].sum()))])
+        shader_table = Table(wrapped_shader_summary, colWidths=[2.5*inch, 2.5*inch])
+        shader_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        elements.append(shader_table)
+        
+        # Add top 5 slowest shaders
+        elements.append(Paragraph("Top 5 Slowest Shaders", subheading_style))
+        
+        sorted_shaders = shader_df.sort_values('compilation_seconds', ascending=False)
+        top_shaders = sorted_shaders.head(5)
+        
+        if not top_shaders.empty:
+            # Create header row
+            shader_table_data = [["Shader Name", "Pass", "Time (s)"]]
             
-            # Apply text wrapping
-            wrapped_shader_summary = []
-            for row in shader_summary:
-                wrapped_shader_summary.append([
-                    wrap_cell_text(row[0]), 
-                    wrap_cell_text(row[1])
+            # Apply wrapping to header
+            shader_table_data[0] = [wrap_cell_text(cell) for cell in shader_table_data[0]]
+            
+            # Add top shaders
+            for _, row in top_shaders.iterrows():
+                pass_name = row.get('pass_name', 'N/A') if 'pass_name' in row else 'N/A'
+                shader_table_data.append([
+                    wrap_cell_text(row['shader_name']),
+                    wrap_cell_text(pass_name),
+                    wrap_cell_text(f"{row['compilation_seconds']:.2f}s")
                 ])
-                
-            shader_table = Table(wrapped_shader_summary, colWidths=[2.5*inch, 2.5*inch])
-            shader_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
+            
+            top_shader_table = Table(shader_table_data, colWidths=[2.5*inch, 1.5*inch, 1*inch])
+            top_shader_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
                 ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
@@ -571,49 +659,15 @@ def generate_pdf_report(log_file_path, parsing_data):
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
                 ('GRID', (0, 0), (-1, -1), 1, colors.black)
             ]))
-            elements.append(shader_table)
-            
-            # Add top 5 slowest shaders
-            elements.append(Paragraph("Top 5 Slowest Shaders", subheading_style))
-            
-            sorted_shaders = shader_df.sort_values('compilation_seconds', ascending=False)
-            top_shaders = sorted_shaders.head(5)
-            
-            if not top_shaders.empty:
-                # Create header row
-                shader_table_data = [["Shader Name", "Pass", "Time (s)"]]
-                
-                # Apply wrapping to header
-                shader_table_data[0] = [wrap_cell_text(cell) for cell in shader_table_data[0]]
-                
-                # Add top shaders
-                for _, row in top_shaders.iterrows():
-                    pass_name = row.get('pass_name', 'N/A') if 'pass_name' in row else 'N/A'
-                    shader_table_data.append([
-                        wrap_cell_text(row['shader_name']),
-                        wrap_cell_text(pass_name),
-                        wrap_cell_text(f"{row['compilation_seconds']:.2f}s")
-                    ])
-                
-                top_shader_table = Table(shader_table_data, colWidths=[2.5*inch, 1.5*inch, 1*inch])
-                top_shader_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-                    ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                    ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-                    ('FONTSIZE', (0, 0), (-1, -1), 10),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                ]))
-                elements.append(top_shader_table)
-        
-        elements.append(Spacer(1, 0.5*inch))
+            elements.append(top_shader_table)
+    else:
+        elements.append(Paragraph("No shader compilation data was found in the log file.", warning_style))
+    
+    elements.append(Spacer(1, 0.5*inch))
     
     # IL2CPP PROCESSING SECTION
+    elements.append(Paragraph("IL2CPP Processing Analysis", heading_style))
     if il2cpp_data:
-        elements.append(Paragraph("IL2CPP Processing Analysis", heading_style))
-        
         # Calculate summary metrics
         total_assemblies = len(il2cpp_data)
         total_time_ms = sum(entry['total_time_ms'] for entry in il2cpp_data)
@@ -677,6 +731,8 @@ def generate_pdf_report(log_file_path, parsing_data):
                 ('GRID', (0, 0), (-1, -1), 1, colors.black)
             ]))
             elements.append(assembly_table)
+    else:
+        elements.append(Paragraph("No IL2CPP processing data was found in the log file.", warning_style))
     
     # Build the PDF
     doc.build(elements)
@@ -684,4 +740,3 @@ def generate_pdf_report(log_file_path, parsing_data):
     # Get the PDF from the buffer
     buffer.seek(0)
     return buffer
- 

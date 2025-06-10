@@ -8,11 +8,55 @@ from Visualizers import *
 
 
 if __name__ == "__main__":
-    # For testing with sample data
+    # Check if running with command line arguments
     if len(sys.argv) > 1:
-        log_file = sys.argv[1]
-        visualize_log_data(log_file)
+        # Parse command line arguments
+        args = data_helpers.parse_arguments()
+        
+        if os.path.exists(args.log_file):
+            print(f"Analyzing log file: {args.log_file}")
+            
+            # Use default parsing options (all enabled)
+            parsing_options = {
+                'shader': True,
+                'imports': True,
+                'loading': True,
+                'build_report': True,
+                'pipeline': True, 
+                'domain_reload': True,
+                'player_build': True,
+                'il2cpp': True,
+                'tundra': True,
+                'timestamp_gaps': True
+            }
+            
+            # Parse the data (modified to return parsed data)
+            parsed_data = visualize_log_data(args.log_file, parsing_options=parsing_options)
+            
+            # Determine output path for the PDF
+            output_path = args.output
+            if not output_path:
+                # If no output path is specified, use the same directory as the log file
+                log_dir = os.path.dirname(args.log_file)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_filename = f"unity_log_analysis_{timestamp}.pdf"
+                output_path = os.path.join(log_dir, output_filename)
+            
+            # Generate the PDF report
+            print(f"Generating PDF report...")
+            pdf_buffer = generate_pdf_report(args.log_file, parsed_data)
+            
+            # Save the PDF to the specified path
+            with open(output_path, 'wb') as f:
+                f.write(pdf_buffer.getvalue())
+            
+            print(f"PDF report saved to: {output_path}")
+            
+        else:
+            print(f"Error: Log file not found - {args.log_file}")
+            sys.exit(1)
     else:
+        # Run in Streamlit web application mode
         st.set_page_config(layout="wide", page_title="Unity Build Log Analyzer")
         
         # Initialize session state for options if not already set

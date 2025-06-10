@@ -591,4 +591,20 @@ def visualize_log_data(log_file_path, parsing_options=None):
                 visualize_timestamp_gaps(log_file_path)
                 section_times["Visualize Timestamp Gaps"] = time.time() - start_time
                 spinner_container.empty()
+    
+     # Return the parsed data for use in PDF generation
+    return {
+        'shader_df': shader_df,
+        'shader_issues': shader_issues,
+        'import_df': import_df,
+        'loading_df': loading_df,
+        'build_df': build_df,
+        'total_build_size': total_build_size,
+        'total_build_unit': total_build_unit,
+        'refresh_df': refresh_df,
+        'player_build_info': player_build_info,
+        'il2cpp_data': il2cpp_data,
+        'domain_reloads': domain_reloads,
+        'unity_version': unity_version
+    }
  
