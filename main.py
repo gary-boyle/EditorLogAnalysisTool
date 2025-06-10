@@ -77,7 +77,8 @@ if __name__ == "__main__":
                 'domain_reload': True,
                 'player_build': True,
                 'il2cpp': True,
-                'tundra': True
+                'tundra': True,
+                'performance_report': True  # Add this line
             }
 
         # Initialize flag for preset change
@@ -97,52 +98,57 @@ if __name__ == "__main__":
             "All Analysis Types": {
                 'shader': True, 'imports': True, 'loading': True, 'build_report': True,
                 'pipeline': True, 'domain_reload': True, 'player_build': True, 
-                'il2cpp': True, 'tundra': True, 'timestamp_gaps': True
+                'il2cpp': True, 'tundra': True, 'timestamp_gaps': True, 'performance_report': True
             },
             "Shader Analysis Only": {
                 'shader': True, 'imports': False, 'loading': False, 'build_report': False,
                 'pipeline': False, 'domain_reload': False, 'player_build': False,
-                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False, 'performance_report': True
             },
             "Asset Imports Only": {
                 'shader': False, 'imports': True, 'loading': False, 'build_report': False,
                 'pipeline': False, 'domain_reload': False, 'player_build': False,
-                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False, 'performance_report': True
             },
             "Loading Analysis Only": {
                 'shader': False, 'imports': False, 'loading': True, 'build_report': False,
                 'pipeline': False, 'domain_reload': False, 'player_build': False,
-                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False, 'performance_report': True
             },
             "Build Report Only": {
                 'shader': False, 'imports': False, 'loading': False, 'build_report': True,
                 'pipeline': False, 'domain_reload': False, 'player_build': False,
-                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False, 'performance_report': True
             },
             "Pipeline Refresh Analysis Only": {
                 'shader': False, 'imports': False, 'loading': False, 'build_report': False,
                 'pipeline': True, 'domain_reload': False, 'player_build': False,
-                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False, 'performance_report': True
             },
             "Domain Reload Analysis Only": {
                 'shader': False, 'imports': False, 'loading': False, 'build_report': False,
                 'pipeline': False, 'domain_reload': True, 'player_build': False,
-                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False, 'performance_report': True
             },
             "Player Build Analysis Only": {
                 'shader': False, 'imports': False, 'loading': False, 'build_report': False,
                 'pipeline': False, 'domain_reload': False, 'player_build': True,
-                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False, 'performance_report': True
             },
             "IL2CPP Analysis Only": {
                 'shader': False, 'imports': False, 'loading': False, 'build_report': False,
                 'pipeline': False, 'domain_reload': False, 'player_build': False,
-                'il2cpp': True, 'tundra': False, 'timestamp_gaps': False
+                'il2cpp': True, 'tundra': False, 'timestamp_gaps': False, 'performance_report': True
             },
             "Timestamp Gaps Only": {
                 'shader': False, 'imports': False, 'loading': False, 'build_report': False,
                 'pipeline': False, 'domain_reload': False, 'player_build': False,
-                'il2cpp': False, 'tundra': False, 'timestamp_gaps': True
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': True, 'performance_report': True
+            },
+            "Performance Report Only": {
+                'shader': False, 'imports': False, 'loading': False, 'build_report': False,
+                'pipeline': False, 'domain_reload': False, 'player_build': False,
+                'il2cpp': False, 'tundra': False, 'timestamp_gaps': False, 'performance_report': True
             }
         }
         
@@ -248,6 +254,11 @@ if __name__ == "__main__":
                         value=st.session_state.parse_options.get('timestamp_gaps', True),
                         help="Analyze gaps between timestamps to detect frozen or unresponsive periods"
                 )
+                st.session_state.parse_options['performance_report'] = st.checkbox(
+                        "Performance Report", 
+                        value=st.session_state.parse_options.get('performance_report', True),
+                        help="Parse Unity Performance Report data"
+    )
                 
         
         # Then show file uploader
