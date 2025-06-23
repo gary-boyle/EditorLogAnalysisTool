@@ -1,3 +1,4 @@
 streamlit
-plotly
 reportlab
+pandas
+plotly
