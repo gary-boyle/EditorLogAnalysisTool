@@ -1,3 +1,5 @@
 streamlit
-plotly
 reportlab
+pandas
+plotly
+streamlit_chunk_file_uploader
