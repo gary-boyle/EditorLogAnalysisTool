@@ -154,6 +154,3 @@ Sample logs are available in the [Examples/](Examples/) directory for testing an
 
 Pull requests and issues are welcome!
 
-## License
-
-[MIT](LICENSE) (add
