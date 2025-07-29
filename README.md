@@ -11,6 +11,16 @@ A tool for analyzing and visualizing Unity Editor log files, with support for PD
 - **Timestamp gap analysis**: Detect frozen or unresponsive periods in the Editor.
 - **Helpful visualizations** and summaries.
 
+Breakdown of Time Spent
+<img width="2476" height="454" alt="image" src="https://github.com/user-attachments/assets/48f51b74-734c-490e-b2aa-edcc2ffc9ca2" />
+
+Shader Compilation time by shader
+<img width="2348" height="592" alt="image" src="https://github.com/user-attachments/assets/e7b8b2bb-c362-4dfa-a653-742eb7b3b648" />
+
+Build Report Asset Size
+<img width="2354" height="987" alt="image" src="https://github.com/user-attachments/assets/454ef644-ff3f-48c2-b2d8-8b3898fb35d5" />
+
+
 ## Getting Started
 
 ### Prerequisites
