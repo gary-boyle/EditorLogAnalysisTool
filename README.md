@@ -69,6 +69,16 @@ python main.py --log_file path/to/Editor.log --output path/to/report.pdf
 
 If `--output` is omitted, the PDF will be saved next to the log file.
 
+#### Running with Docker
+
+You can also run the application inside a Docker container.
+
+1.  Build the Docker image:
+    `docker build -t editor-log-analyzer .`
+
+2.  Run the Docker container:
+    `docker run -p 8501:8501 editor-log-analyzer`
+
 ## Usage
 
 1. **Select Data Types**: Use checkboxes to choose which log data to analyze.
