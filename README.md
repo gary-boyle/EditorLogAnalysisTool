@@ -11,13 +11,8 @@ A tool for analyzing and visualizing Unity Editor log files, with support for PD
 - **Timestamp gap analysis**: Detect frozen or unresponsive periods in the Editor.
 - **Helpful visualizations** and summaries.
 
-Breakdown of Time Spent
 <img width="2476" height="454" alt="image" src="https://github.com/user-attachments/assets/48f51b74-734c-490e-b2aa-edcc2ffc9ca2" />
-
-Shader Compilation time by shader
 <img width="2348" height="592" alt="image" src="https://github.com/user-attachments/assets/e7b8b2bb-c362-4dfa-a653-742eb7b3b648" />
-
-Build Report Asset Size
 <img width="2354" height="987" alt="image" src="https://github.com/user-attachments/assets/454ef644-ff3f-48c2-b2d8-8b3898fb35d5" />
 
 
@@ -31,28 +26,26 @@ Build Report Asset Size
 - [Plotly](https://plotly.com/)
 
 To run the tool locally:
-1. clone the repository
-❯ git clone git@github.com:gary-boyle/EditorLogAnalysisTool.git
+1. Clone the repository
+`git clone git@github.com:gary-boyle/EditorLogAnalysisTool.git`
 
-2. enter the project root
-❯ cd EditorLogAnalysisTool
+2. Enter the project root
+`cd EditorLogAnalysisTool`
 
-3. make sure python is installed and up-to-date
-❯ brew install python3
+3. Make sure Python is installed and up-to-date
+`brew install python3`
 
-(Optional)
-4. create a virtual environment in the current folder to keep the librairies local and not system wide
-❯ python3 -m venv .
+4. (Optional) Create a virtual environment in the current folder to keep the librairies local and not system wide
+`python3 -m venv .`
 
-(Optional)
-5. activate the virtual environment (source is required because execution flag isn't set)
-❯ source bin/activate
+5. (Optional) Activate the virtual environment
+`source bin/activate`
 
-6. install the required libraries in the virtual environment
-❯ pip3 install streamlit reportlab plotly
+6. Install the required libraries in the virtual environment
+`pip3 install streamlit reportlab plotly`
 
-7. run the project, this opens the web page in your browser
-❯ python3 -m streamlit run main.py
+7. Run the project, this opens the web page in your browser
+`python3 -m streamlit run main.py`
 
 ### Running the Tool
 
