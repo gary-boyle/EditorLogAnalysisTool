@@ -3,6 +3,7 @@ import sys
 import argparse
 import os
 from datetime import datetime
+from streamlit_chunk_file_uploader import uploader
 
 from Parsers import *
 from Reporting import *
@@ -278,10 +279,11 @@ if __name__ == "__main__":
         """
         
         # Track the uploaded file and its modification time
-        current_log_file = st.file_uploader("Please Upload your Unity log file (Editor.log)", 
+        current_log_file = uploader("Please Upload your Unity log file (Editor.log)", 
                                            type=["txt", "log"], 
                                            help=log_file_help,
-                                           key="log_file_uploader")
+                                           key="log_file_uploader",
+                                           chunk_size=31)
         
         if current_log_file:
             # Get file details to detect changes

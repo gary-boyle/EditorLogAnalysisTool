@@ -4,6 +4,8 @@ A tool for analyzing and visualizing Unity Editor log files, with support for PD
 
 ## Features
 
+The application will be available at http://localhost:8501.
+=======
 - **Parse Unity Editor.log files** for build, asset, domain reload, IL2CPP, Tundra, and performance data.
 - **Interactive web interface** powered by Streamlit.
 - **PDF report generation** for offline sharing.
@@ -68,6 +70,19 @@ python main.py --log_file path/to/Editor.log --output path/to/report.pdf
 ```
 
 If `--output` is omitted, the PDF will be saved next to the log file.
+
+Run : `python -m streamlit run .\main.py`
+
+#### Running with Docker
+
+You can also run the application inside a Docker container.
+
+1.  Build the Docker image:
+    `docker build -t editor-log-analyzer .`
+
+2.  Run the Docker container:
+    `docker run -p 8501:8501 editor-log-analyzer`
+
 
 ## Usage
 
@@ -138,7 +153,3 @@ Sample logs are available in the [Examples/](Examples/) directory for testing an
 ## Contributing
 
 Pull requests and issues are welcome!
-
-## License
-
-[MIT](LICENSE) (add
