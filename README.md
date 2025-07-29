@@ -2,6 +2,11 @@
 
 A tool for analyzing and visualizing Unity Editor log files, with support for PDF report generation and interactive web-based exploration.
 
+Important Note!
+This tool uses Regex and string matching to find entries in your Editor.log files.  This technique can be flawed as minor changes in strings, or user added strings can cause false positive or negative results.  I have tried various techniques to make this as robust as possible, but due to the transient and string-based nature of Editor.log I can't garuantee accuracy.  Please always double check the results presented before making any decisions.
+
+This tool is still in a prototype stage and I'm making updates frequently.  Editor.log files are a complex beast with many different syntax presented and updated/modified during Unity/package versions. 
+
 ## Features
 
 - **Parse Unity Editor.log files** for build, asset, domain reload, IL2CPP, Tundra, and performance data.
