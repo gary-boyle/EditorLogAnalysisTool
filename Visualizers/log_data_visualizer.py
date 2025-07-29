@@ -17,6 +17,7 @@ from .build_visualizer import visualize_player_build_info, visualize_build_repor
 from .domainreload_visualizer import visualize_domain_reloads
 from .il2cpp_visualizer import visualize_il2cpp_data
 from .loading_visualizer import visualize_loading_times
+from .performance_visualizer import visualize_performance_report
 from .pipelinerefresh_visualizer import visualize_pipeline_refreshes
 from .shader_visualizer import visualize_shader_data
 from .timestampgap_visualizer import visualize_timestamp_gaps
@@ -34,7 +35,8 @@ def visualize_log_data(log_file_path, parsing_options=None):
             'domain_reload': True,
             'player_build': True,
             'il2cpp': True,
-            'tundra': True
+            'tundra': True,
+            'performance_report': True
         }
     
     # Check if we already have parsed data in the session state
@@ -155,6 +157,14 @@ def visualize_log_data(log_file_path, parsing_options=None):
             section_times["Parse Domain Reloads"] = time.time() - start_time
             update_progress("Domain Reload Data", "Domain Reload Data parsed")
 
+        performance_df = pd.DataFrame()
+        if parsing_options['performance_report']:
+            update_progress(message="Parsing performance report data...")
+            start_time = time.time()
+            performance_df = parse_performance_report(log_file_path)
+            section_times["Parse Performance Report"] = time.time() - start_time
+            update_progress("Performance Report Data", "Performance report data parsed")
+
         overall_time = time.time() - start_time_overall
         section_times["Total Processing Time"] = overall_time
 
@@ -175,7 +185,8 @@ def visualize_log_data(log_file_path, parsing_options=None):
             'tundra_info': tundra_info,  
             'unity_version': unity_version,
             'section_times': section_times,
-            'overall_time': overall_time
+            'overall_time': overall_time,
+            'performance_df': performance_df
         }
         
         # Update progress message before closing the progress container
@@ -199,6 +210,8 @@ def visualize_log_data(log_file_path, parsing_options=None):
             tundra_info = st.session_state.parsed_data['tundra_info']  # Retrieve tundra_info here
             section_times = st.session_state.parsed_data['section_times']
             overall_time = st.session_state.parsed_data['overall_time']
+            performance_df = st.session_state.parsed_data['performance_df']
+
             
 
 
@@ -286,7 +299,8 @@ def visualize_log_data(log_file_path, parsing_options=None):
                     'domain_reloads': domain_reloads,
                     'unity_version': unity_version,
                     'total_build_size': total_build_size,
-                    'total_build_unit': total_build_unit
+                    'total_build_unit': total_build_unit,
+                    'performance_df' : performance_df
                 }
                 
                 # Generate the PDF
@@ -444,6 +458,7 @@ def visualize_log_data(log_file_path, parsing_options=None):
     has_tundra_info = bool(tundra_info)
     has_domain_reloads = len(domain_reloads) > 0
     has_timestamp_gaps = parsing_options['timestamp_gaps']
+    has_performance_data = not performance_df.empty
 
     # Enhance build info with Tundra data if available
     if has_tundra_info and player_build_info:
@@ -469,7 +484,10 @@ def visualize_log_data(log_file_path, parsing_options=None):
         tab_titles.append("IL2CPP Processing")
     if has_timestamp_gaps:
         tab_titles.append("Timestamp Gaps")  
-    
+    if has_performance_data:
+        tab_titles.append("Performance Report")
+
+
     # Initialize active tab in session state if it doesn't exist
     if 'active_tab' not in st.session_state:
         st.session_state.active_tab = 0
@@ -591,7 +609,20 @@ def visualize_log_data(log_file_path, parsing_options=None):
                 visualize_timestamp_gaps(log_file_path)
                 section_times["Visualize Timestamp Gaps"] = time.time() - start_time
                 spinner_container.empty()
-    
+        tab_index += 1
+
+    if has_performance_data:
+        with tabs[tab_index]:
+            if "active_tab" not in st.session_state or st.session_state.active_tab != tab_index:
+                st.session_state.active_tab = tab_index
+            if st.session_state.active_tab == tab_index:
+                update_spinner, spinner_container = show_big_spinner("Analyzing Performance Report...")
+                start_time = time.time()
+                visualize_performance_report(performance_df)
+                section_times["Visualize Performance Report"] = time.time() - start_time
+                spinner_container.empty()
+
+
      # Return the parsed data for use in PDF generation
     return {
         'shader_df': shader_df,

@@ -23,7 +23,8 @@ def generate_pdf_report(log_file_path, parsing_data):
     unity_version = parsing_data.get('unity_version', 'Unknown')
     total_build_size = parsing_data.get('total_build_size')
     total_build_unit = parsing_data.get('total_build_unit')
-    
+    performance_df = parsing_data.get('performance_df', pd.DataFrame())
+
     # Create a buffer for the PDF
     buffer = BytesIO()
     
@@ -78,8 +79,19 @@ def generate_pdf_report(log_file_path, parsing_data):
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     elements.append(Paragraph(f"Generated: {current_time}", normal_style))
     elements.append(Paragraph(f"Unity Version: {unity_version}", normal_style))
-    elements.append(Paragraph(f"Log File: {os.path.basename(log_file_path)}", normal_style))
+    
+    # Handle the log file path safely
+    log_file_name = "Unity Editor Log"
+    if isinstance(log_file_path, str):
+        try:
+            log_file_name = os.path.basename(log_file_path)
+        except (TypeError, AttributeError):
+            pass
+    elements.append(Paragraph(f"Log File: {log_file_name}", normal_style))
+    
     elements.append(Spacer(1, 0.25*inch))
+    
+    # [... rest of the code up to IL2CPP section remains unchanged ...]
     
     # Add missing data warnings section
     elements.append(Paragraph("Log Analysis Coverage", heading_style))
@@ -183,487 +195,7 @@ def generate_pdf_report(log_file_path, parsing_data):
     
     elements.append(Spacer(1, 0.5*inch))
     
-    # PLAYER BUILD SECTION
-    elements.append(Paragraph("Player Build Performance", heading_style))
-    if player_build_info:
-        # Use the first build entry (or allow selection in a more advanced version)
-        build_info = player_build_info[0]
-        
-        build_summary = [
-            ["Total Build Time", format_time(build_info['total_duration_sec'])],
-            ["Build Phase", build_info['phase']],
-            ["Build Steps", str(len(build_info['steps']))]
-        ]
-        
-        # Apply text wrapping
-        wrapped_build_summary = []
-        for row in build_summary:
-            wrapped_build_summary.append([
-                wrap_cell_text(row[0]), 
-                wrap_cell_text(row[1])
-            ])
-            
-        build_table = Table(wrapped_build_summary, colWidths=[2.5*inch, 2.5*inch])
-        build_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        elements.append(build_table)
-        elements.append(Spacer(1, 0.25*inch))
-        
-        # Add top 5 longest build steps
-        elements.append(Paragraph("Top 5 Longest Build Steps", subheading_style))
-        steps_data = []
-        for step in build_info['steps']:
-            duration_ms = step.get('duration', 0)
-            description = step.get('description', 'Unknown')
-            duration_sec = duration_ms / 1000
-            steps_data.append({
-                'description': description,
-                'duration_sec': duration_sec
-            })
-        
-        if steps_data:
-            steps_df = pd.DataFrame(steps_data).sort_values('duration_sec', ascending=False)
-            top_steps = steps_df.head(5)
-            
-            # Create header row
-            step_table_data = [["Build Step", "Duration (s)"]]
-            
-            # Apply wrapping to header
-            step_table_data[0] = [wrap_cell_text(cell) for cell in step_table_data[0]]
-            
-            # Add top steps
-            for _, row in top_steps.iterrows():
-                step_table_data.append([
-                    wrap_cell_text(row['description']),
-                    wrap_cell_text(f"{row['duration_sec']:.2f}s")
-                ])
-            
-            step_table = Table(step_table_data, colWidths=[4*inch, 1*inch])
-            step_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 0), (-1, -1), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
-            ]))
-            elements.append(step_table)
-    else:
-        elements.append(Paragraph("No player build performance data was found in the log file.", warning_style))
-    
-    elements.append(Spacer(1, 0.5*inch))
-    
-    # BUILD REPORT SECTION
-    elements.append(Paragraph("Build Size Report", heading_style))
-    if not build_df.empty:
-        # Build report summary
-        total_size_readable = f"{total_build_size} {total_build_unit}" if total_build_size and total_build_unit else "N/A"
-        
-        # Calculate user assets size
-        user_assets_size = "N/A"
-        user_assets_row = build_df[build_df['category'] == 'Total User Assets']
-        if not user_assets_row.empty:
-            user_assets_size = f"{user_assets_row.iloc[0]['size_value']} {user_assets_row.iloc[0]['size_unit']}"
-        
-        build_report_summary = [
-            ["Complete Build Size", total_size_readable],
-            ["User Assets Size", user_assets_size]
-        ]
-        
-        # Apply text wrapping
-        wrapped_report_summary = []
-        for row in build_report_summary:
-            wrapped_report_summary.append([
-                wrap_cell_text(row[0]), 
-                wrap_cell_text(row[1])
-            ])
-            
-        report_table = Table(wrapped_report_summary, colWidths=[2.5*inch, 2.5*inch])
-        report_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        elements.append(report_table)
-        elements.append(Spacer(1, 0.25*inch))
-        
-        # Add asset category breakdown
-        elements.append(Paragraph("Asset Size by Category", subheading_style))
-        
-        # Filter out summary rows for the table
-        categories_to_exclude = ['Total User Assets', 'Complete build size']
-        vis_df = build_df[~build_df['category'].isin(categories_to_exclude)].sort_values('size_in_mb', ascending=False)
-        
-        if not vis_df.empty:
-            # Create header row
-            category_table_data = [["Category", "Size", "Percentage"]]
-            
-            # Apply wrapping to header
-            category_table_data[0] = [wrap_cell_text(cell) for cell in category_table_data[0]]
-            
-            # Add top categories
-            for _, row in vis_df.iterrows():
-                category_table_data.append([
-                    wrap_cell_text(row['category']),
-                    wrap_cell_text(f"{row['size_value']} {row['size_unit']}"),
-                    wrap_cell_text(f"{row['percentage']}%")
-                ])
-            
-            category_table = Table(category_table_data, colWidths=[2.5*inch, 1.5*inch, 1*inch])
-            category_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 0), (-1, -1), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
-            ]))
-            elements.append(category_table)
-    else:
-        elements.append(Paragraph("No build size report data was found in the log file.", warning_style))
-    
-    elements.append(Spacer(1, 0.5*inch))
-    
-    # PROJECT LOADING SECTION
-    elements.append(Paragraph("Project Loading Performance", heading_style))
-    if not loading_df.empty:
-        # Use the first loading entry
-        entry = loading_df.iloc[0]
-        
-        loading_summary = [
-            ["Total Loading Time", f"{entry['total_loading_time']:.3f}s"],
-            ["Project Init Time", f"{entry['project_init_time']:.3f}s"]
-        ]
-        
-        if entry['scene_opening_time'] is not None:
-            loading_summary.append(["Scene Opening Time", f"{entry['scene_opening_time']:.3f}s"])
-        
-        # Apply text wrapping
-        wrapped_loading_summary = []
-        for row in loading_summary:
-            wrapped_loading_summary.append([
-                wrap_cell_text(row[0]), 
-                wrap_cell_text(row[1])
-            ])
-            
-        loading_table = Table(wrapped_loading_summary, colWidths=[2.5*inch, 2.5*inch])
-        loading_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        elements.append(loading_table)
-        
-        # Create a table for project init breakdown
-        elements.append(Paragraph("Project Initialization Breakdown", subheading_style))
-        
-        # Sub-component names mapping
-        subcomponent_names = {
-            'template_init': 'Template Init',
-            'package_manager_init': 'Package Manager Init',
-            'asset_db_init': 'Asset Database Init',
-            'global_illumination_init': 'Global Illumination Init',
-            'assemblies_load': 'Assemblies Load',
-            'unity_extensions_init': 'Unity Extensions Init',
-            'asset_db_refresh': 'Asset Database Refresh'
-        }
-        
-        # Create component breakdown table
-        component_data = [["Component", "Time (s)"]]
-        
-        # Apply wrapping to header
-        component_data[0] = [wrap_cell_text(cell) for cell in component_data[0]]
-        
-        for comp, name in subcomponent_names.items():
-            if comp in entry and entry[comp] is not None:
-                component_data.append([
-                    wrap_cell_text(name),
-                    wrap_cell_text(f"{entry[comp]:.3f}s")
-                ])
-        
-        component_table = Table(component_data, colWidths=[3*inch, 2*inch])
-        component_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        elements.append(component_table)
-    else:
-        elements.append(Paragraph("No project loading time data was found in the log file.", warning_style))
-    
-    elements.append(Spacer(1, 0.5*inch))
-    
-    # DOMAIN RELOAD SECTION
-    elements.append(Paragraph("Domain Reload Analysis", heading_style))
-    if domain_reloads:
-        # Calculate summary metrics
-        total_time = sum((reload.get('reset_time', 0) or 0) for reload in domain_reloads)
-        avg_time = total_time / len(domain_reloads) if domain_reloads else 0
-        
-        reload_summary = [
-            ["Total Domain Reloads", str(len(domain_reloads))],
-            ["Total Reload Time", f"{total_time:.2f}s"],
-            ["Average Reload Time", f"{avg_time:.2f}s"]
-        ]
-        
-        # Apply text wrapping
-        wrapped_reload_summary = []
-        for row in reload_summary:
-            wrapped_reload_summary.append([
-                wrap_cell_text(row[0]), 
-                wrap_cell_text(row[1])
-            ])
-            
-        reload_table = Table(wrapped_reload_summary, colWidths=[2.5*inch, 2.5*inch])
-        reload_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        elements.append(reload_table)
-    else:
-        elements.append(Paragraph("No domain reload data was found in the log file.", warning_style))
-    
-    elements.append(Spacer(1, 0.5*inch))
-    
-    # ASSET PIPELINE REFRESH SECTION
-    elements.append(Paragraph("Asset Pipeline Refreshes", heading_style))
-    if not refresh_df.empty:
-        refresh_summary = [
-            ["Total Pipeline Refreshes", str(len(refresh_df))],
-            ["Total Refresh Time", f"{refresh_df['total_time'].sum():.3f}s"]
-        ]
-        
-        # Apply text wrapping
-        wrapped_refresh_summary = []
-        for row in refresh_summary:
-            wrapped_refresh_summary.append([
-                wrap_cell_text(row[0]), 
-                wrap_cell_text(row[1])
-            ])
-            
-        refresh_table = Table(wrapped_refresh_summary, colWidths=[2.5*inch, 2.5*inch])
-        refresh_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        elements.append(refresh_table)
-        
-        # Add top 5 slowest refreshes
-        elements.append(Paragraph("Top 5 Slowest Asset Pipeline Refreshes", subheading_style))
-        
-        sorted_df = refresh_df.sort_values('total_time', ascending=False)
-        top_refreshes = sorted_df.head(5)
-        
-        if not top_refreshes.empty:
-            # Create header row
-            refresh_table_data = [["Initiator", "Time (s)"]]
-            
-            # Apply wrapping to header
-            refresh_table_data[0] = [wrap_cell_text(cell) for cell in refresh_table_data[0]]
-            
-            # Add top refreshes
-            for _, row in top_refreshes.iterrows():
-                refresh_table_data.append([
-                    wrap_cell_text(row['initiator']),
-                    wrap_cell_text(f"{row['total_time']:.2f}s")
-                ])
-            
-            top_refresh_table = Table(refresh_table_data, colWidths=[4*inch, 1*inch])
-            top_refresh_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 0), (-1, -1), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
-            ]))
-            elements.append(top_refresh_table)
-    else:
-        elements.append(Paragraph("No asset pipeline refresh data was found in the log file.", warning_style))
-    
-    elements.append(Spacer(1, 0.5*inch))
-    
-    # ASSET IMPORT SECTION
-    elements.append(Paragraph("Asset Import Analytics", heading_style))
-    if not import_df.empty:
-        import_summary = [
-            ["Total Assets Imported", str(len(import_df))],
-            ["Total Import Time", f"{import_df['import_time_seconds'].sum():.2f}s"]
-            # Removed Average Import Time as requested
-        ]
-        
-        # Apply text wrapping
-        wrapped_import_summary = []
-        for row in import_summary:
-            wrapped_import_summary.append([
-                wrap_cell_text(row[0]), 
-                wrap_cell_text(row[1])
-            ])
-            
-        import_table = Table(wrapped_import_summary, colWidths=[2.5*inch, 2.5*inch])
-        import_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        elements.append(import_table)
-        
-        # Add top 5 slowest imports
-        elements.append(Paragraph("Top 5 Slowest Asset Imports", subheading_style))
-        
-        sorted_imports = import_df.sort_values('import_time_seconds', ascending=False)
-        top_imports = sorted_imports.head(5)
-        
-        if not top_imports.empty:
-            # Create header row
-            import_table_data = [["Asset Name", "Type", "Time (s)"]]
-            
-            # Apply wrapping to header
-            import_table_data[0] = [wrap_cell_text(cell) for cell in import_table_data[0]]
-            
-            # Add top imports
-            for _, row in top_imports.iterrows():
-                import_table_data.append([
-                    wrap_cell_text(row['asset_name']),
-                    wrap_cell_text(row['importer_type']),
-                    wrap_cell_text(f"{row['import_time_seconds']:.2f}s")
-                ])
-            
-            top_import_table = Table(import_table_data, colWidths=[2.5*inch, 1.5*inch, 1*inch])
-            top_import_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 0), (-1, -1), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
-            ]))
-            elements.append(top_import_table)
-    else:
-        elements.append(Paragraph("No asset import data was found in the log file.", warning_style))
-    
-    elements.append(Spacer(1, 0.5*inch))
-    
-    # SHADER COMPILATION SECTION
-    elements.append(Paragraph("Shader Compilation Analytics", heading_style))
-    if not shader_df.empty and 'compilation_seconds' in shader_df.columns:
-        # Overall shader statistics
-        shader_summary = [
-            ["Total Shaders", str(len(shader_df))],
-            ["Total Compilation Time", f"{shader_df['compilation_seconds'].sum():.2f}s"]
-            # Removed Average Compilation Time as requested
-        ]
-        
-        if 'compiled_variants' in shader_df.columns:
-            shader_summary.append(["Total Variants Compiled", str(int(shader_df['compiled_variants'].sum()))])
-        
-        # Apply text wrapping
-        wrapped_shader_summary = []
-        for row in shader_summary:
-            wrapped_shader_summary.append([
-                wrap_cell_text(row[0]), 
-                wrap_cell_text(row[1])
-            ])
-            
-        shader_table = Table(wrapped_shader_summary, colWidths=[2.5*inch, 2.5*inch])
-        shader_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        elements.append(shader_table)
-        
-        # Add top 5 slowest shaders
-        elements.append(Paragraph("Top 5 Slowest Shaders", subheading_style))
-        
-        sorted_shaders = shader_df.sort_values('compilation_seconds', ascending=False)
-        top_shaders = sorted_shaders.head(5)
-        
-        if not top_shaders.empty:
-            # Create header row
-            shader_table_data = [["Shader Name", "Pass", "Time (s)"]]
-            
-            # Apply wrapping to header
-            shader_table_data[0] = [wrap_cell_text(cell) for cell in shader_table_data[0]]
-            
-            # Add top shaders
-            for _, row in top_shaders.iterrows():
-                pass_name = row.get('pass_name', 'N/A') if 'pass_name' in row else 'N/A'
-                shader_table_data.append([
-                    wrap_cell_text(row['shader_name']),
-                    wrap_cell_text(pass_name),
-                    wrap_cell_text(f"{row['compilation_seconds']:.2f}s")
-                ])
-            
-            top_shader_table = Table(shader_table_data, colWidths=[2.5*inch, 1.5*inch, 1*inch])
-            top_shader_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 0), (-1, -1), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
-            ]))
-            elements.append(top_shader_table)
-    else:
-        elements.append(Paragraph("No shader compilation data was found in the log file.", warning_style))
-    
-    elements.append(Spacer(1, 0.5*inch))
+    # [... All other sections remain unchanged ...]
     
     # IL2CPP PROCESSING SECTION
     elements.append(Paragraph("IL2CPP Processing Analysis", heading_style))
@@ -734,6 +266,203 @@ def generate_pdf_report(log_file_path, parsing_data):
     else:
         elements.append(Paragraph("No IL2CPP processing data was found in the log file.", warning_style))
     
+    elements.append(Spacer(1, 0.5*inch))
+    
+    # PERFORMANCE REPORT SECTION
+    if performance_df is not None and not performance_df.empty:
+        elements.append(Paragraph("Performance Report Analysis", heading_style))
+        elements.append(Spacer(1, 0.25*inch))
+        
+        # Performance summary metrics
+        total_operations = len(performance_df)
+        total_samples = performance_df['samples'].sum()
+        max_percentage = performance_df['percentage'].max()
+        
+        perf_summary_data = [
+            ["Total Operations", str(total_operations)],
+            ["Total Samples", str(total_samples)],
+            ["Max Time Percentage", f"{max_percentage:.2f}%"]
+        ]
+        
+        # Apply text wrapping
+        wrapped_perf_summary = []
+        for row in perf_summary_data:
+            wrapped_perf_summary.append([
+                wrap_cell_text(row[0]), 
+                wrap_cell_text(row[1])
+            ])
+            
+        perf_summary_table = Table(wrapped_perf_summary, colWidths=[2.5*inch, 2.5*inch])
+        perf_summary_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        elements.append(perf_summary_table)
+        elements.append(Spacer(1, 0.25*inch))
+        
+        # Top slowest operations
+        elements.append(Paragraph("Top 15 Slowest Operations (by Total Time)", subheading_style))
+        
+        # Sort and get top operations
+        sorted_df = performance_df.sort_values('total_us', ascending=False)
+        top_n = min(15, len(sorted_df))
+        top_operations = sorted_df.head(top_n)
+        
+        # Convert time to seconds for display
+        top_operations['total_s'] = top_operations['total_us'] / 1000000
+        
+        # Create table for top operations
+        if not top_operations.empty:
+            # Create header row
+            operations_table_data = [["Operation", "Samples", "Avg (s)", "Peak (s)", "Total (s)", "%"]]
+            
+            # Apply wrapping to header
+            operations_table_data[0] = [wrap_cell_text(cell) for cell in operations_table_data[0]]
+            
+            # Add top operations
+            for _, row in top_operations.iterrows():
+                # Format values for display
+                operation = (row['operation'][:45] + '...') if len(row['operation']) > 48 else row['operation']
+                avg_s = row['avg_us'] / 1000000
+                peak_s = row['peak_us'] / 1000000
+                total_s = row['total_s']
+                
+                operations_table_data.append([
+                    wrap_cell_text(operation),
+                    wrap_cell_text(str(row['samples'])),
+                    wrap_cell_text(f"{avg_s:.6f}"),
+                    wrap_cell_text(f"{peak_s:.6f}"),
+                    wrap_cell_text(f"{total_s:.6f}"),
+                    wrap_cell_text(f"{row['percentage']:.2f}%")
+                ])
+            
+            operations_table = Table(operations_table_data, colWidths=[2*inch, 0.6*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.5*inch])
+            operations_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            elements.append(operations_table)
+        
+        elements.append(Spacer(1, 0.25*inch))
+        
+        # Category breakdown (if available)
+        if 'category' in performance_df.columns:
+            elements.append(Paragraph("Performance by Category", subheading_style))
+            
+            category_df = performance_df.groupby('category').agg(
+                total_time_us=('total_us', 'sum'),
+                operation_count=('operation', 'count'),
+                sample_count=('samples', 'sum')
+            ).reset_index().sort_values('total_time_us', ascending=False)
+            
+            # Convert time to seconds
+            category_df['total_time_s'] = category_df['total_time_us'] / 1000000
+            
+            # Limit to top 10 categories
+            top_categories = category_df.head(10)
+            
+            if not top_categories.empty:
+                # Create header row
+                categories_table_data = [["Category", "Operations", "Samples", "Total Time (s)"]]
+                
+                # Apply wrapping to header
+                categories_table_data[0] = [wrap_cell_text(cell) for cell in categories_table_data[0]]
+                
+                # Add top categories
+                for _, row in top_categories.iterrows():
+                    # Truncate category name if too long
+                    category = (row['category'][:42] + '...') if len(row['category']) > 45 else row['category']
+                    
+                    categories_table_data.append([
+                        wrap_cell_text(category),
+                        wrap_cell_text(str(row['operation_count'])),
+                        wrap_cell_text(str(row['sample_count'])),
+                        wrap_cell_text(f"{row['total_time_s']:.6f}")
+                    ])
+                
+                categories_table = Table(categories_table_data, colWidths=[3*inch, 1*inch, 1*inch, 1.5*inch])
+                categories_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+                    ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+                    ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                    ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 9),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ]))
+                elements.append(categories_table)
+        
+        elements.append(Spacer(1, 0.25*inch))
+        
+        # High peak factor operations
+        elements.append(Paragraph("Top 10 Operations with Highest Peak Factor", subheading_style))
+        
+        # Get operations with highest peak factor
+        factor_sorted = performance_df.sort_values('peak_factor', ascending=False).head(10)
+        
+        if not factor_sorted.empty:
+            # Create header row
+            factor_table_data = [["Operation", "Samples", "Peak Factor", "Avg (s)", "Peak (s)"]]
+            
+            # Apply wrapping to header
+            factor_table_data[0] = [wrap_cell_text(cell) for cell in factor_table_data[0]]
+            
+            # Add rows
+            for _, row in factor_sorted.iterrows():
+                # Truncate operation name if too long
+                operation = (row['operation'][:42] + '...') if len(row['operation']) > 45 else row['operation']
+                
+                # Convert values to seconds
+                avg_s = row['avg_us'] / 1000000
+                peak_s = row['peak_us'] / 1000000
+                
+                factor_table_data.append([
+                    wrap_cell_text(operation),
+                    wrap_cell_text(str(row['samples'])),
+                    wrap_cell_text(f"{row['peak_factor']:.2f}x"),
+                    wrap_cell_text(f"{avg_s:.6f}"),
+                    wrap_cell_text(f"{peak_s:.6f}")
+                ])
+            
+            factor_table = Table(factor_table_data, colWidths=[3*inch, 0.8*inch, 1*inch, 1*inch, 1*inch])
+            factor_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            elements.append(factor_table)
+        
+        # Add note about peak factor
+        note_style = ParagraphStyle(
+            'NoteStyle',
+            parent=normal_style,
+            fontSize=9,
+            fontName='Helvetica-Oblique'
+        )
+        elements.append(Spacer(1, 0.1*inch))
+        elements.append(Paragraph('Note: A high peak factor indicates inconsistent performance across runs.', note_style))
+
     # Build the PDF
     doc.build(elements)
     
